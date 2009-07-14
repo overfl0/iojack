@@ -6,6 +6,33 @@
 #include <sys/syscall.h>
 #include <linux/user.h>
 #include <asm/ptrace.h>
+#include <queue>
+
+using namespace std;
+
+class buffer
+{
+//Disclaimer: This is not supposed to be optimal
+//This is supposed to *work*
+private:
+	queue<unsigned char> data;
+public:
+	void add(char c) {data.push(c);}
+	void add(const char *s)
+	{
+		for(const char *p = s; *p; p++)
+			data.push(*p);
+	}
+	int size() { return data.size(); }
+	unsigned char get()
+	{
+		unsigned char c = data.front();
+		data.pop();
+		return c;
+	}
+};
+
+buffer inputBuffer;
 
 inline unsigned int getValue(unsigned int addr, int tracepid)
 {
@@ -42,8 +69,27 @@ inline int wejscie(int status)
 		return 0;
 }
 
+
+// ============= HOOKS =============
+void readHook(int pid, user_regs_struct &regs)
+{
+	//ssize_t read(int fd, void *buf, size_t count);
+	//eax read(ebx fd, ecx *buf, edx count);
+	
+	int len = inputBuffer.size();
+	if(regs.edx < len)
+		len = regs.edx;
+	
+	for(int i = 0; i < len; i++)
+		writeChar(regs.ecx + i, inputBuffer.get(), pid);
+	regs.eax = len;
+}
+
+
+// ======== END OF HOOKS ===========
 int main(int argc, char *argv[])
 {
+	inputBuffer.add("To jest test");
 	int canExit = 0;
 	if(argc < 2)
 	{
@@ -99,7 +145,7 @@ int main(int argc, char *argv[])
 		ptrace((__ptrace_request)PTRACE_GETREGS, pid, 0, &regs);
 		/*printf("__EAX: %d (orig: %d)\n", regs.eax, regs.orig_eax);
 		printf("Status: %x\n", status);*/
-		if(regs.orig_eax == SYS_read || regs.orig_eax == -1/*wyjscie == 1*/)
+		if(inputBuffer.size() && (regs.orig_eax == SYS_read || regs.orig_eax == -1))
 		{
 			
 			
@@ -116,7 +162,7 @@ int main(int argc, char *argv[])
 			*/
 			
 			if(inSyscall == 0)
-			{
+			{//TODO: check whether fd == 0 (input)
 				// First ptrace trap. We are about to run a syscall.
 				// Remember it and change it to a nonexisting one
 				// Then wait for ptrace to stop execution again after
@@ -137,11 +183,7 @@ int main(int argc, char *argv[])
 				// "correct" return values, etc...
 				switch(inSyscall)
 				{
-				case SYS_read:
-					writeChar(regs.ecx, 'x', pid);
-					//regs.orig_eax = -1;
-					regs.eax = 1;
-					break;
+				case SYS_read: readHook(pid, regs); break;
 					
 				}
 				// TODO: check retval
@@ -150,6 +192,9 @@ int main(int argc, char *argv[])
 			}
 		
 		}
+		
+		if(inputBuffer.size() == 0)
+			canExit = 1;
 		
 		if(canExit)
 			break;

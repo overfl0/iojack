@@ -44,6 +44,7 @@ inline int wejscie(int status)
 
 int main(int argc, char *argv[])
 {
+	int canExit = 0;
 	if(argc < 2)
 	{
 		printf("Usage: %s <pid>\n", argv[0]);
@@ -150,6 +151,8 @@ int main(int argc, char *argv[])
 		
 		}
 		
+		if(canExit)
+			break;
 	}
 	// TODO: check retval
 	ptrace(PTRACE_DETACH, pid, NULL, NULL);

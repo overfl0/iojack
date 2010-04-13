@@ -67,14 +67,18 @@ inline unsigned long getValue(unsigned long addr, pid_t tracepid)
 inline long writeLong(unsigned long addr, unsigned long value, pid_t tracepid)
 {
 	long retval = ptrace(PTRACE_POKEDATA,tracepid,addr, value);
-		if(retval == -1)
-		perror("ptrace write");
+	if(retval == -1)
+	{
+		char tmp[100];
+		sprintf(tmp, "ptrace write at addr 0x%lx", addr);
+		perror(tmp);
+	}
 	else
 		printf("Write OK!\n");
 	return retval;
 }
 
-inline int writeChar(unsigned int addr, unsigned char value, pid_t tracepid)
+inline int writeChar(unsigned long addr, unsigned char value, pid_t tracepid)
 {
 	//Check retval + errno!
 	unsigned long origVal = getValue(addr, tracepid);
@@ -183,6 +187,7 @@ int main(int argc, char *argv[])
 			}
 			printf("\n");
 			*/
+			printf("Syscall: 0x%lx\tArg1: 0x%lx\tArg2: 0x%lx\tArg3: 0x%lx\t", regs.orig_rax, regs.ARG1, regs.ARG2, regs.ARG3);
 			if(inSyscall == -2)
 			{//TODO: check whether fd == 0 (input)
 				// First ptrace trap. We are about to run a syscall.
@@ -190,8 +195,8 @@ int main(int argc, char *argv[])
 				// Then wait for ptrace to stop execution again after
 				// running it.
 				inSyscall = regs.orig_rax;
-				printf("RIP: %lx\tRSP: %lx\tRBP: %lx\tRAX: %lx\tRBX: %lx\tRCX: %lx\tRDX: %lx\n", regs.rip, regs.rsp, regs.rbp, regs.rax, regs.rbx, regs.rcx, regs.rdx);
-				printf("RDI: %lx\tRSI: %lx\tRDX: %lx\tRCX: %lx\n", regs.rdi, regs.rsi, regs.rdx, regs.rcx);
+				//printf("RIP: %lx\tRSP: %lx\tRBP: %lx\tRAX: %lx\tRBX: %lx\tRCX: %lx\tRDX: %lx\n", regs.rip, regs.rsp, regs.rbp, regs.rax, regs.rbx, regs.rcx, regs.rdx);
+				//printf("RDI: %lx\tRSI: %lx\tRDX: %lx\tRCX: %lx\n", regs.rdi, regs.rsi, regs.rdx, regs.rcx);
 				// This syscall can't exist :)
 				regs.orig_rax = -1;
 				regs.rax = -1;

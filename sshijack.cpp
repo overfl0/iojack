@@ -4,9 +4,27 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>
-#include <linux/user.h>
+#include <sys/user.h>
 #include <asm/ptrace.h>
+#include <errno.h>
 #include <queue>
+
+
+#if 0 /* insert 32bit test here */
+
+#define ARG1 ebx
+#define ARG2 ecx
+#define ARG3 edx
+//#define ARG4
+
+#else /* x86_64 arch */
+
+#define ARG1 rdi
+#define ARG2 rsi
+#define ARG3 rdx
+#define ARG4 rcx
+
+#endif
 
 using namespace std;
 
@@ -34,28 +52,32 @@ public:
 
 buffer inputBuffer;
 
-inline unsigned int getValue(unsigned int addr, int tracepid)
+inline unsigned long getValue(unsigned long addr, pid_t tracepid)
 {
-	unsigned int retval = ptrace(PTRACE_PEEKDATA,tracepid,addr,0);
+	unsigned long retval = ptrace(PTRACE_PEEKDATA,tracepid,addr,0);
+	if(retval == (unsigned long)-1 && errno != 0)
+	{
+		perror("ptrace read");
+		printf("errno: %d\n", errno);
+	}
+	//throw "Exception!!!";
 	return retval;
-		//if(retval == (unsigned int)-1 && errno != 0)
-		//	throw "Exception!!!";
 }
 
-inline int writeLong(unsigned int addr, unsigned long value, int tracepid)
+inline long writeLong(unsigned long addr, unsigned long value, pid_t tracepid)
 {
-	int retval = ptrace(PTRACE_POKEDATA,tracepid,addr, value);
-	/*	if(retval == -1)
+	long retval = ptrace(PTRACE_POKEDATA,tracepid,addr, value);
+		if(retval == -1)
 		perror("ptrace write");
 	else
-		printf("Write OK!");*/
+		printf("Write OK!\n");
 	return retval;
 }
 
-inline int writeChar(unsigned int addr, unsigned char value, int tracepid)
+inline int writeChar(unsigned int addr, unsigned char value, pid_t tracepid)
 {
 	//Check retval + errno!
-	unsigned int origVal = getValue(addr, tracepid);
+	unsigned long origVal = getValue(addr, tracepid);
 	unsigned char *p = (unsigned char *)&origVal;
 	*p = value;
 	writeLong(addr, origVal, tracepid);
@@ -71,25 +93,27 @@ inline int wejscie(int status)
 
 
 // ============= HOOKS =============
-void readHook(int pid, user_regs_struct &regs)
+void readHook(pid_t pid, user_regs_struct &regs)
 {
 	//ssize_t read(int fd, void *buf, size_t count);
 	//eax read(ebx fd, ecx *buf, edx count);
-	
 	int len = inputBuffer.size();
-	if(regs.edx < len)
-		len = regs.edx;
+	if(regs.ARG3 < len)
+		len = regs.ARG3;
 	
 	for(int i = 0; i < len; i++)
-		writeChar(regs.ecx + i, inputBuffer.get(), pid);
-	regs.eax = len;
+	{
+		char c = inputBuffer.get();
+		writeChar(regs.ARG2 + i, c, pid);
+	}
+	regs.rax = len;
 }
 
 
 // ======== END OF HOOKS ===========
 int main(int argc, char *argv[])
 {
-	inputBuffer.add("To jest test");
+	inputBuffer.add("To jest test\n");
 	int canExit = 0;
 	if(argc < 2)
 	{
@@ -102,7 +126,7 @@ int main(int argc, char *argv[])
 		printf("Can't get correct pid from arguments\n");
 		return 1;
 	}
-	
+	printf("Attaching to pid: %d\n", pid);
 	if(ptrace(PTRACE_ATTACH, pid, NULL, NULL) == -1)
 	{
 		perror("PTRACE_ATTACH");
@@ -122,8 +146,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 	
-	int inSyscall = 0;
-	
+	int inSyscall = -2;
 	while(1)
 	{	
 		// We are interested only in syscalls
@@ -143,9 +166,9 @@ int main(int argc, char *argv[])
 		struct user_regs_struct regs;
 		// TODO: check retval
 		ptrace((__ptrace_request)PTRACE_GETREGS, pid, 0, &regs);
-		/*printf("__EAX: %d (orig: %d)\n", regs.eax, regs.orig_eax);
-		printf("Status: %x\n", status);*/
-		if(inputBuffer.size() && (regs.orig_eax == SYS_read || regs.orig_eax == -1))
+		printf("__RAX: %ld (orig: %ld)\n", regs.rax, regs.orig_rax);
+		/*printf("Status: %x\n", status);*/
+		if(inputBuffer.size() && (regs.orig_rax == SYS_read || regs.orig_rax == -1))
 		{
 			
 			
@@ -160,18 +183,18 @@ int main(int argc, char *argv[])
 			}
 			printf("\n");
 			*/
-			
-			if(inSyscall == 0)
+			if(inSyscall == -2)
 			{//TODO: check whether fd == 0 (input)
 				// First ptrace trap. We are about to run a syscall.
 				// Remember it and change it to a nonexisting one
 				// Then wait for ptrace to stop execution again after
 				// running it.
-				inSyscall = regs.orig_eax;
-				
+				inSyscall = regs.orig_rax;
+				printf("RIP: %lx\tRSP: %lx\tRBP: %lx\tRAX: %lx\tRBX: %lx\tRCX: %lx\tRDX: %lx\n", regs.rip, regs.rsp, regs.rbp, regs.rax, regs.rbx, regs.rcx, regs.rdx);
+				printf("RDI: %lx\tRSI: %lx\tRDX: %lx\tRCX: %lx\n", regs.rdi, regs.rsi, regs.rdx, regs.rcx);
 				// This syscall can't exist :)
-				regs.orig_eax = -1;
-				regs.eax = -1;
+				regs.orig_rax = -1;
+				regs.rax = -1;
 				
 				// TODO: check retval
 				ptrace((__ptrace_request)PTRACE_SETREGS, pid, 0, &regs);
@@ -188,7 +211,7 @@ int main(int argc, char *argv[])
 				}
 				// TODO: check retval
 				ptrace((__ptrace_request)PTRACE_SETREGS, pid, 0, &regs);
-				inSyscall = 0;
+				inSyscall = -2;
 			}
 		
 		}

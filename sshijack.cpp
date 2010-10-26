@@ -9,6 +9,9 @@
 #include <errno.h>
 #include <queue>
 
+#include <signal.h>
+
+void ex_program(int sig);
 
 #if 0 /* insert 32bit test here */
 
@@ -113,12 +116,15 @@ void readHook(pid_t pid, user_regs_struct &regs)
 	regs.rax = len;
 }
 
+int canExit;
 
 // ======== END OF HOOKS ===========
 int main(int argc, char *argv[])
 {
+	(void) signal(SIGINT, ex_program);
+
 	inputBuffer.add("To jest test\n");
-	int canExit = 0;
+	/*int*/ canExit = 0;
 	if(argc < 2)
 	{
 		printf("Usage: %s <pid>\n", argv[0]);
@@ -144,7 +150,7 @@ int main(int argc, char *argv[])
 	}
 	*/
 	int status;
-	wait(&status);
+	pid = wait(&status);
 	if(WIFEXITED(status)){
 		printf("Process exited\n");
 		return 0;
@@ -221,8 +227,8 @@ int main(int argc, char *argv[])
 		
 		}
 		
-		if(inputBuffer.size() == 0)
-			canExit = 1;
+		//if(inputBuffer.size() == 0)
+		//	canExit = 1;
 		
 		if(canExit)
 			break;
@@ -234,4 +240,14 @@ int main(int argc, char *argv[])
 	
 	
 	return 0;
+}
+
+void ex_program(int sig)
+{
+    printf("Wake up call ... !!! - Caught signal: %d ... !!\n", sig);
+    (void) signal(SIGINT, SIG_DFL);
+    
+    //ptrace(PTRACE_DETACH, pid, NULL, NULL);
+    //exit(0);
+    canExit = 1;
 }

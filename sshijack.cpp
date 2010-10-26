@@ -97,7 +97,7 @@ void readHook(pid_t pid, user_regs_struct &regs)
 		char c = inputBuffer.get();
 		writeChar(regs.ARG2 + i, c, pid);
 	}
-	regs.rax = len;
+	regs.RAX = len;
 }
 
 int canExit;
@@ -140,43 +140,29 @@ int main(int argc, char *argv[])
 		wait(&status);
 		if(WIFEXITED(status)){
 			printf("Process exited\n");
+			//TODO: if no more process traced, then exit
 			return 0;
 		}
-		
 		
 		struct user_regs_struct regs;
 		// TODO: check retval
 		ptrace((__ptrace_request)PTRACE_GETREGS, pid, 0, &regs);
-		printf("__RAX: %ld (orig: %ld)\n", regs.rax, regs.orig_rax);
+		printf("__RAX: %ld (orig: %ld)\n", regs.RAX, regs.ORIG_RAX);
 		/*printf("Status: %x\n", status);*/
-		if(inputBuffer.size() && (regs.orig_rax == SYS_read || regs.orig_rax == -1))
+		if(inputBuffer.size() && (regs.ORIG_RAX == SYS_read || regs.ORIG_RAX == -1))
 		{
-			
-			
-			/*
-			int tbl[100];
-			printf("EIP: %x\tESP: %x\tEBP: %x\tEAX: %x\tEBX: %x\tECX: %x\tEDX: %x\n", regs.eip, regs.esp, regs.ebp, regs.eax, regs.ebx, regs.ecx, regs.edx);
-			printf("EAX_orig: %x\n", regs.orig_eax);
-			for(int i = 0; i < 10; i++)
-			{
-				tbl[i] = getValue(regs.eip + 4*i, pid);
-				printf("%08x ", tbl[i]);
-			}
-			printf("\n");
-			*/
-			printf("Syscall: 0x%lx\tArg1: 0x%lx\tArg2: 0x%lx\tArg3: 0x%lx\t", regs.orig_rax, regs.ARG1, regs.ARG2, regs.ARG3);
+			printf("Syscall: 0x%lx\tArg1: 0x%lx\tArg2: 0x%lx\tArg3: 0x%lx\t", regs.ORIG_RAX, regs.ARG1, regs.ARG2, regs.ARG3);
 			if(inSyscall == -2)
 			{//TODO: check whether fd == 0 (input)
 				// First ptrace trap. We are about to run a syscall.
 				// Remember it and change it to a nonexisting one
 				// Then wait for ptrace to stop execution again after
 				// running it.
-				inSyscall = regs.orig_rax;
-				//printf("RIP: %lx\tRSP: %lx\tRBP: %lx\tRAX: %lx\tRBX: %lx\tRCX: %lx\tRDX: %lx\n", regs.rip, regs.rsp, regs.rbp, regs.rax, regs.rbx, regs.rcx, regs.rdx);
-				//printf("RDI: %lx\tRSI: %lx\tRDX: %lx\tRCX: %lx\n", regs.rdi, regs.rsi, regs.rdx, regs.rcx);
+				inSyscall = regs.ORIG_RAX;
+
 				// This syscall can't exist :)
-				regs.orig_rax = -1;
-				regs.rax = -1;
+				regs.ORIG_RAX = -1;
+				regs.RAX = -1;
 				
 				// TODO: check retval
 				ptrace((__ptrace_request)PTRACE_SETREGS, pid, 0, &regs);
@@ -207,9 +193,6 @@ int main(int argc, char *argv[])
 	// TODO: check retval
 	ptrace(PTRACE_DETACH, pid, NULL, NULL);
 	
-	
-	
-	
 	return 0;
 }
 
@@ -217,7 +200,7 @@ void ex_program(int sig)
 {
     printf("Wake up call ... !!! - Caught signal: %d ... !!\n", sig);
     (void) signal(SIGINT, SIG_DFL);
-    
+
     //ptrace(PTRACE_DETACH, pid, NULL, NULL);
     //exit(0);
     canExit = 1;

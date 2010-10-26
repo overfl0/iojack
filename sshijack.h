@@ -8,6 +8,10 @@
 #define ARG5 edi
 #define ARG6 ebp
 
+// This should not break anything
+#define RAX eax
+#define ORIG_RAX orig_eax
+
 #elif defined(__amd64__) || defined(_M_X64) /* x86_64 arch */
 //#warning x86_64 architecture detected
 
@@ -18,6 +22,9 @@
 #define ARG5 r8
 #define ARG6 r9
 //Note to self: Kernel-kernel calls use rdi, rsi, rdx, r10, r8, r9
+
+#define RAX rax
+#define ORIG_RAX orig_rax
 
 #else
 #error "Can't recognize processor architecture!"

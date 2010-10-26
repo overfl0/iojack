@@ -83,8 +83,15 @@ inline int wejscie(int status)
 		return 0;
 }
 
-struct processInfo
+class processInfo
 {
+	public:
+	processInfo(pid_t newPid)
+	{
+		pid = newPid;
+		inSyscall = -2;
+	}
+
 	pid_t pid;
 	int inSyscall;
 };
@@ -113,6 +120,46 @@ void readHook(pid_t pid, user_regs_struct &regs)
 int canExit;
 
 // ======== END OF HOOKS ===========
+
+void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
+{
+	printf("__RAX: %ld (orig: %ld)\n", regs->RAX, regs->ORIG_RAX);
+
+	if(inputBuffer.size() && (regs->ORIG_RAX == SYS_read || regs->ORIG_RAX == -1))
+	{
+		printf("Syscall: 0x%lx\tArg1: 0x%lx\tArg2: 0x%lx\tArg3: 0x%lx\t", regs->ORIG_RAX, regs->ARG1, regs->ARG2, regs->ARG3);
+		if(pi->inSyscall == -2)
+		{//TODO: check whether fd == 0 (input)
+			// First ptrace trap. We are about to run a syscall.
+			// Remember it and change it to a nonexisting one
+			// Then wait for ptrace to stop execution again after
+			// running it.
+			pi->inSyscall = regs->ORIG_RAX;
+
+			// This syscall can't exist :)
+			regs->ORIG_RAX = -1;
+			regs->RAX = -1;
+			
+			*saveRegs = 1;
+		}
+		else
+		{
+			// Second ptrace trap. We just finished running our
+			// nonexisting syscall. Now is the moment to inject the
+			// "correct" return values, etc...
+			switch(pi->inSyscall)
+			{
+			case SYS_read: readHook(pi->pid, *regs); break;
+				
+			}
+
+			*saveRegs = 1;
+			pi->inSyscall = -2;
+		}
+	
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	(void) signal(SIGINT, ex_program);
@@ -129,11 +176,8 @@ int main(int argc, char *argv[])
 	printf("Attaching to pid: %d\n", firstPid);
 	if(ptrace(PTRACE_ATTACH, firstPid, NULL, NULL) == -1)
 		perrorexit("PTRACE_ATTACH");
-	
-	processInfo *pi = new processInfo;
-	pi->inSyscall = -2;
-	pi->pid = firstPid;
-	processes[firstPid] = pi;
+
+	processes[firstPid] = new processInfo(firstPid);
 
 	/*if(ptrace(PTRACE_SETOPTIONS, pid, NULL, PTRACE_O_TRACESYSGOOD) == -1)
 		perrorexit("PTRACE_SETOPTIONS"); */
@@ -163,44 +207,17 @@ int main(int argc, char *argv[])
 		if(it == processes.end())
 			pexit("Unexpected pid %d received by wait call\n", pidReceived);
 		
+		processInfo *pi = it->second;
 		struct user_regs_struct regs;
 		// TODO: check retval
 		ptrace((__ptrace_request)PTRACE_GETREGS, it->second->pid, 0, &regs);
-		printf("__RAX: %ld (orig: %ld)\n", regs.RAX, regs.ORIG_RAX);
-		/*printf("Status: %x\n", status);*/
-		if(inputBuffer.size() && (regs.ORIG_RAX == SYS_read || regs.ORIG_RAX == -1))
-		{
-			printf("Syscall: 0x%lx\tArg1: 0x%lx\tArg2: 0x%lx\tArg3: 0x%lx\t", regs.ORIG_RAX, regs.ARG1, regs.ARG2, regs.ARG3);
-			if(/*inSyscall == -2*/it->second->inSyscall == -2)
-			{//TODO: check whether fd == 0 (input)
-				// First ptrace trap. We are about to run a syscall.
-				// Remember it and change it to a nonexisting one
-				// Then wait for ptrace to stop execution again after
-				// running it.
-				it->second->inSyscall = regs.ORIG_RAX;
-
-				// This syscall can't exist :)
-				regs.ORIG_RAX = -1;
-				regs.RAX = -1;
-				
-				// TODO: check retval
-				ptrace((__ptrace_request)PTRACE_SETREGS, it->second->pid, 0, &regs);
-			}
-			else
-			{
-				// Second ptrace trap. We just finished running our
-				// nonexisting syscall. Now is the moment to inject the
-				// "correct" return values, etc...
-				switch(it->second->inSyscall)
-				{
-				case SYS_read: readHook(it->second->pid, regs); break;
-					
-				}
-				// TODO: check retval
-				ptrace((__ptrace_request)PTRACE_SETREGS, it->second->pid, 0, &regs);
-				it->second->inSyscall = -2;
-			}
 		
+		int saveRegs = 0;
+		processSyscall(pi, &regs, &saveRegs);
+		if(saveRegs)
+		{
+			// TODO: check retval
+			ptrace((__ptrace_request)PTRACE_SETREGS, it->second->pid, 0, &regs);
 		}
 		
 		//if(inputBuffer.size() == 0)

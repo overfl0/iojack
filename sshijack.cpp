@@ -8,6 +8,7 @@
 #include <asm/ptrace.h>
 #include <errno.h>
 #include <queue>
+#include <map>
 
 #include <signal.h>
 
@@ -82,6 +83,15 @@ inline int wejscie(int status)
 		return 0;
 }
 
+struct processInfo
+{
+	pid_t pid;
+	int inSyscall;
+};
+
+typedef map<pid_t, processInfo*> processes_t;
+processes_t processes;
+
 
 // ============= HOOKS =============
 void readHook(pid_t pid, user_regs_struct &regs)
@@ -112,74 +122,83 @@ int main(int argc, char *argv[])
 	if(argc < 2)
 		pexit("Usage: %s <pid>\n", argv[0]);
 
-	int pid = atoi(argv[1]);
-	if(pid <= 1)
+	int firstPid = atoi(argv[1]);
+	if(firstPid <= 1)
 		pexit("Can't get correct pid from arguments\n");
 
-	printf("Attaching to pid: %d\n", pid);
-	if(ptrace(PTRACE_ATTACH, pid, NULL, NULL) == -1)
+	printf("Attaching to pid: %d\n", firstPid);
+	if(ptrace(PTRACE_ATTACH, firstPid, NULL, NULL) == -1)
 		perrorexit("PTRACE_ATTACH");
+	
+	processInfo *pi = new processInfo;
+	pi->inSyscall = -2;
+	pi->pid = firstPid;
+	processes[firstPid] = pi;
 
 	/*if(ptrace(PTRACE_SETOPTIONS, pid, NULL, PTRACE_O_TRACESYSGOOD) == -1)
 		perrorexit("PTRACE_SETOPTIONS"); */
 
 	int status;
-	pid = wait(&status);
+	// Should be checked
+	firstPid = wait(&status);
 	if(WIFEXITED(status)){
 		printf("Process exited\n");
 		return 0;
 	}
 	
-	int inSyscall = -2;
+	// We are interested only in syscalls
+	if(ptrace(PTRACE_SYSCALL, firstPid, NULL, NULL) == -1)
+		perrorexit("PTRACE_SYSCALL");
+	
 	while(1)
-	{	
-		// We are interested only in syscalls
-		if(ptrace(PTRACE_SYSCALL, pid, NULL, NULL) == -1)
-			perrorexit("PTRACE_SYSCALL");
-		
-		wait(&status);
+	{
+		int pidReceived = wait(&status);
 		if(WIFEXITED(status)){
 			printf("Process exited\n");
 			//TODO: if no more process traced, then exit
 			return 0;
 		}
 		
+		processes_t::iterator it = processes.find(pidReceived);
+		if(it == processes.end())
+			pexit("Unexpected pid %d received by wait call\n", pidReceived);
+		
 		struct user_regs_struct regs;
 		// TODO: check retval
-		ptrace((__ptrace_request)PTRACE_GETREGS, pid, 0, &regs);
+		ptrace((__ptrace_request)PTRACE_GETREGS, it->second->pid, 0, &regs);
 		printf("__RAX: %ld (orig: %ld)\n", regs.RAX, regs.ORIG_RAX);
 		/*printf("Status: %x\n", status);*/
 		if(inputBuffer.size() && (regs.ORIG_RAX == SYS_read || regs.ORIG_RAX == -1))
 		{
 			printf("Syscall: 0x%lx\tArg1: 0x%lx\tArg2: 0x%lx\tArg3: 0x%lx\t", regs.ORIG_RAX, regs.ARG1, regs.ARG2, regs.ARG3);
-			if(inSyscall == -2)
+			if(/*inSyscall == -2*/it->second->inSyscall == -2)
 			{//TODO: check whether fd == 0 (input)
 				// First ptrace trap. We are about to run a syscall.
 				// Remember it and change it to a nonexisting one
 				// Then wait for ptrace to stop execution again after
 				// running it.
-				inSyscall = regs.ORIG_RAX;
+				it->second->inSyscall = regs.ORIG_RAX;
 
 				// This syscall can't exist :)
 				regs.ORIG_RAX = -1;
 				regs.RAX = -1;
 				
 				// TODO: check retval
-				ptrace((__ptrace_request)PTRACE_SETREGS, pid, 0, &regs);
+				ptrace((__ptrace_request)PTRACE_SETREGS, it->second->pid, 0, &regs);
 			}
 			else
 			{
 				// Second ptrace trap. We just finished running our
 				// nonexisting syscall. Now is the moment to inject the
 				// "correct" return values, etc...
-				switch(inSyscall)
+				switch(it->second->inSyscall)
 				{
-				case SYS_read: readHook(pid, regs); break;
+				case SYS_read: readHook(it->second->pid, regs); break;
 					
 				}
 				// TODO: check retval
-				ptrace((__ptrace_request)PTRACE_SETREGS, pid, 0, &regs);
-				inSyscall = -2;
+				ptrace((__ptrace_request)PTRACE_SETREGS, it->second->pid, 0, &regs);
+				it->second->inSyscall = -2;
 			}
 		
 		}
@@ -189,9 +208,15 @@ int main(int argc, char *argv[])
 		
 		if(canExit)
 			break;
+		
+		// We are interested only in syscalls
+		if(ptrace(PTRACE_SYSCALL, it->second->pid, NULL, NULL) == -1)
+			perrorexit("PTRACE_SYSCALL");
 	}
 	// TODO: check retval
-	ptrace(PTRACE_DETACH, pid, NULL, NULL);
+	ptrace(PTRACE_DETACH, firstPid, NULL, NULL);
+	
+	// TODO: Clean the processes map (delete pointers)
 	
 	return 0;
 }

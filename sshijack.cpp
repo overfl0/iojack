@@ -13,32 +13,7 @@
 
 void ex_program(int sig);
 
-#if defined(__i386__) || defined(M_IX86) /* x86 arch */
-//#warning x86 architecture detected
-
-#define ARG1 ebx
-#define ARG2 ecx
-#define ARG3 edx
-#define ARG4 esi
-#define ARG5 edi
-#define ARG6 ebp
-
-#elif defined(__amd64__) || defined(_M_X64) /* x86_64 arch */
-//#warning x86_64 architecture detected
-
-#define ARG1 rdi
-#define ARG2 rsi
-#define ARG3 rdx
-#define ARG4 rcx
-#define ARG5 r8
-#define ARG6 r9
-//Note to self: Kernel-kernel calls use rdi, rsi, rdx, r10, r8, r9
-
-#else
-#error "Can't recognize processor architecture!"
-#endif
-
-using namespace std;
+#include "sshijack.h"
 
 class buffer
 {
@@ -135,29 +110,19 @@ int main(int argc, char *argv[])
 	inputBuffer.add("To jest test\n");
 	/*int*/ canExit = 0;
 	if(argc < 2)
-	{
-		printf("Usage: %s <pid>\n", argv[0]);
-		return 1;
-	}
+		pexit("Usage: %s <pid>\n", argv[0]);
+
 	int pid = atoi(argv[1]);
 	if(pid <= 1)
-	{
-		printf("Can't get correct pid from arguments\n");
-		return 1;
-	}
+		pexit("Can't get correct pid from arguments\n");
+
 	printf("Attaching to pid: %d\n", pid);
 	if(ptrace(PTRACE_ATTACH, pid, NULL, NULL) == -1)
-	{
-		perror("PTRACE_ATTACH");
-		return 1;
-	}
-	
+		perrorexit("PTRACE_ATTACH");
+
 	/*if(ptrace(PTRACE_SETOPTIONS, pid, NULL, PTRACE_O_TRACESYSGOOD) == -1)
-	{
-		perror("PTRACE_SETOPTIONS");
-		return 1;
-	}
-	*/
+		perrorexit("PTRACE_SETOPTIONS"); */
+
 	int status;
 	pid = wait(&status);
 	if(WIFEXITED(status)){
@@ -170,10 +135,7 @@ int main(int argc, char *argv[])
 	{	
 		// We are interested only in syscalls
 		if(ptrace(PTRACE_SYSCALL, pid, NULL, NULL) == -1)
-		{
-			perror("PTRACE_SYSCALL");
-			return 1;
-		}
+			perrorexit("PTRACE_SYSCALL");
 		
 		wait(&status);
 		if(WIFEXITED(status)){

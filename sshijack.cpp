@@ -89,11 +89,13 @@ class processInfo
 	processInfo(pid_t newPid)
 	{
 		pid = newPid;
-		inSyscall = -2;
+		inSyscall = 0;
+		fakingSyscall = -1;
 	}
 
 	pid_t pid;
 	int inSyscall;
+	int fakingSyscall;
 };
 
 typedef map<pid_t, processInfo*> processes_t;
@@ -123,40 +125,53 @@ int canExit;
 
 void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 {
-	printf("__RAX: %ld (orig: %ld)\n", regs->RAX, regs->ORIG_RAX);
-
-	if(inputBuffer.size() && (regs->ORIG_RAX == SYS_read || regs->ORIG_RAX == -1))
+	// regs->ORIG_RAX - Syscall number
+	//printf("__RAX: %ld (orig: %ld)\n", regs->RAX, regs->ORIG_RAX);
+	if(!pi->inSyscall)
 	{
-		printf("Syscall: 0x%lx\tArg1: 0x%lx\tArg2: 0x%lx\tArg3: 0x%lx\t", regs->ORIG_RAX, regs->ARG1, regs->ARG2, regs->ARG3);
-		if(pi->inSyscall == -2)
-		{//TODO: check whether fd == 0 (input)
+		printf("Entering syscall: 0x%lx\n", regs->ORIG_RAX);
+		if(inputBuffer.size() && regs->ORIG_RAX == SYS_read)
+		{
+			printf("Syscall: 0x%lx\tfd: 0x%lx\tbuf: 0x%lx\tcount: 0x%lx\n", regs->ORIG_RAX, regs->ARG1, regs->ARG2, regs->ARG3);
+
+			//TODO: check whether fd == 0 (input)
 			// First ptrace trap. We are about to run a syscall.
 			// Remember it and change it to a nonexisting one
 			// Then wait for ptrace to stop execution again after
 			// running it.
-			pi->inSyscall = regs->ORIG_RAX;
+			pi->fakingSyscall = regs->ORIG_RAX;
 
 			// This syscall can't exist :)
 			regs->ORIG_RAX = -1;
 			regs->RAX = -1;
-			
+
 			*saveRegs = 1;
 		}
-		else
+		
+		pi->inSyscall = 1;
+	}
+	else // Exiting from a syscall
+	{
+		printf("Exiting syscall: 0x%lx\n", regs->ORIG_RAX);
+		if(pi->fakingSyscall != -1)
 		{
+			if(regs->ORIG_RAX != -1)
+				printf("OMG! :O\n");
+			printf("Trying to write something.\n");
 			// Second ptrace trap. We just finished running our
 			// nonexisting syscall. Now is the moment to inject the
 			// "correct" return values, etc...
-			switch(pi->inSyscall)
+			switch(pi->fakingSyscall)
 			{
 			case SYS_read: readHook(pi->pid, *regs); break;
 				
 			}
 
 			*saveRegs = 1;
-			pi->inSyscall = -2;
+			pi->fakingSyscall = -1;
 		}
-	
+		
+		pi->inSyscall = 0;
 	}
 }
 

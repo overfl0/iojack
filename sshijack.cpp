@@ -124,7 +124,7 @@ void writeHook(pid_t pid, user_regs_struct &regs)
 	// ssize_t write(int fd, const void *buf, size_t count);
 	//ssize_t retval = write(regs.ARG1, regs.ARG2, regs.ARG3);
 	//write(stdout, regs.ARG2, regs.ARG3);
-	printf("fd = %d\n", regs.ARG1);
+	printf("fd = %d\n", (int)regs.ARG1);
 	if(regs.ARG1 == 1 /*stdout*/ || regs.ARG1 == 2 /*stderr*/ )
 	{
 		for(int i = 0; i < regs.ARG3; i++)
@@ -226,7 +226,7 @@ int main(int argc, char *argv[])
 	// Should be checked
 	firstPid = wait(&status);
 	if(WIFEXITED(status)){
-		printf("Process exited\n");
+		printf("Process %d exited\n", firstPid);
 		return 0;
 	}
 	
@@ -238,7 +238,7 @@ int main(int argc, char *argv[])
 	{
 		int pidReceived = wait(&status);
 		if(WIFEXITED(status)){
-			printf("Process exited\n");
+			printf("Process %d exited\n", pidReceived);
 			//TODO: if no more process traced, then exit
 			return 0;
 		}

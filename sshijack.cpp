@@ -119,6 +119,24 @@ void readHook(pid_t pid, user_regs_struct &regs)
 	regs.RAX = len;
 }
 
+void writeHook(pid_t pid, user_regs_struct &regs)
+{
+	// ssize_t write(int fd, const void *buf, size_t count);
+	//ssize_t retval = write(regs.ARG1, regs.ARG2, regs.ARG3);
+	//write(stdout, regs.ARG2, regs.ARG3);
+	printf("fd = %d\n", regs.ARG1);
+	if(regs.ARG1 == 1 /*stdout*/ || regs.ARG1 == 2 /*stderr*/ )
+	{
+		for(int i = 0; i < regs.ARG3; i++)
+		{
+			unsigned long c = getValue(regs.ARG2 + i, pid);
+			printf("Wrote letter: %c\n", (int)c);
+		}
+	}
+	
+	//return retval;
+}
+
 int canExit;
 
 // ======== END OF HOOKS ===========
@@ -147,6 +165,13 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 
 			*saveRegs = 1;
 		}
+		
+		if(regs->ORIG_RAX == SYS_write)
+		{
+			printf("Got a write syscall!\n");
+			writeHook(pi->pid, *regs);
+		}
+		
 		
 		pi->inSyscall = 1;
 	}

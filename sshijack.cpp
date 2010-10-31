@@ -9,13 +9,40 @@
 #include <errno.h>
 #include <queue>
 #include <map>
-
 #include <signal.h>
-
-void ex_program(int sig);
+#include <string.h>
 
 #include "sshijack.h"
 
+int wantToExit;
+
+void signal_sigint(int sig)
+{
+	printf("Caught Ctrl+C, exiting... Press a second time to force.\n");
+
+	//(void) signal(SIGINT, SIG_DFL);
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(struct sigaction));
+	sa.sa_handler = SIG_DFL;
+	sa.sa_flags = SA_RESTART;
+
+	sigaction(SIGINT, &sa, NULL);
+
+	//ptrace(PTRACE_DETACH, pid, NULL, NULL);
+	//exit(0);
+	wantToExit = 1;
+}
+
+void setSignalHandlers()
+{
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(struct sigaction));
+	
+	sa.sa_handler = signal_sigint;
+	sa.sa_flags = SA_RESTART;
+	
+	sigaction(SIGINT, &sa, NULL);
+}
 class buffer
 {
 //Disclaimer: This is not supposed to be optimal
@@ -137,8 +164,6 @@ void writeHook(pid_t pid, user_regs_struct &regs)
 	//return retval;
 }
 
-int canExit;
-
 // ======== END OF HOOKS ===========
 
 void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
@@ -200,12 +225,36 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 	}
 }
 
+void tryDetachFromProcesses()
+{
+	processes_t::iterator it = processes.begin();
+	
+	// using a while loop instead of a for to be able to erase map elements in place
+	while(it != processes.end())
+	{
+		processInfo *pi = it->second;
+		
+		// If we're in the middle of faking a system call, we can't detach from this pid
+		if(pi->inSyscall && pi->fakingSyscall != -1)
+		{
+			it++;
+			continue;
+		}
+		
+		// TODO: check retval
+		ptrace(PTRACE_DETACH, pi->pid, NULL, NULL);
+		delete pi;
+		processes.erase(it++);
+	}
+}
+
 int main(int argc, char *argv[])
 {
-	(void) signal(SIGINT, ex_program);
+	setSignalHandlers();
 
 	inputBuffer.add("To jest test\n");
-	/*int*/ canExit = 0;
+	wantToExit = 0;
+
 	if(argc < 2)
 		pexit("Usage: %s <pid>\n", argv[0]);
 
@@ -225,7 +274,8 @@ int main(int argc, char *argv[])
 	int status;
 	// Should be checked
 	firstPid = wait(&status);
-	if(WIFEXITED(status)){
+	if(WIFEXITED(status))
+	{
 		printf("Process %d exited\n", firstPid);
 		return 0;
 	}
@@ -236,15 +286,33 @@ int main(int argc, char *argv[])
 	
 	while(1)
 	{
+		// Wait for a syscall to be called
+		printf("Before wait\n");
+		// TODO: check if wait return value is -1
 		int pidReceived = wait(&status);
-		if(WIFEXITED(status)){
+		printf("After wait\n");
+		// FIXME: || WIFSIGNALED?
+		while(WIFEXITED(status))
+		{
 			printf("Process %d exited\n", pidReceived);
-			//TODO: if no more process traced, then exit
-			return 0;
+			processes.erase(pidReceived);
+			
+			// If no more traced processes, then exit
+			if(processes.empty())
+			{
+				// Got a better idea to break out of TWO while loops at once?
+				goto noMoreProcesses;
+			}
+			
+			// Wait for another event
+			printf("Before wait2\n");
+			pidReceived = wait(&status);
+			printf("After wait2\n");
 		}
 		
 		processes_t::iterator it = processes.find(pidReceived);
 		if(it == processes.end())
+			// On purpose. This may be a bug that should not get unnoticed!
 			pexit("Unexpected pid %d received by wait call\n", pidReceived);
 		
 		processInfo *pi = it->second;
@@ -261,29 +329,22 @@ int main(int argc, char *argv[])
 		}
 		
 		//if(inputBuffer.size() == 0)
-		//	canExit = 1;
+		//	wantToExit = 1;
 		
-		if(canExit)
+		if(wantToExit)
+			tryDetachFromProcesses();
+
+		//if no more pids to trace:
+		if(processes.empty())
 			break;
 		
 		// We are interested only in syscalls
 		if(ptrace(PTRACE_SYSCALL, it->second->pid, NULL, NULL) == -1)
 			perrorexit("PTRACE_SYSCALL");
 	}
-	// TODO: check retval
-	ptrace(PTRACE_DETACH, firstPid, NULL, NULL);
-	
-	// TODO: Clean the processes map (delete pointers)
+	// Yes, dear purists, that's a label. Kill me!
+	noMoreProcesses:
 	
 	return 0;
 }
 
-void ex_program(int sig)
-{
-    printf("Wake up call ... !!! - Caught signal: %d ... !!\n", sig);
-    (void) signal(SIGINT, SIG_DFL);
-
-    //ptrace(PTRACE_DETACH, pid, NULL, NULL);
-    //exit(0);
-    canExit = 1;
-}

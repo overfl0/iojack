@@ -43,6 +43,7 @@ void setSignalHandlers()
 	
 	sigaction(SIGINT, &sa, NULL);
 }
+
 class buffer
 {
 //Disclaimer: This is not supposed to be optimal
@@ -227,22 +228,43 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 
 void tryDetachFromProcesses()
 {
+	printf("Trying to detach...\n");
 	processes_t::iterator it = processes.begin();
 	
 	// using a while loop instead of a for to be able to erase map elements in place
 	while(it != processes.end())
 	{
 		processInfo *pi = it->second;
+		printf("Trying pid %d... ", pi->pid);
 		
 		// If we're in the middle of faking a system call, we can't detach from this pid
 		if(pi->inSyscall && pi->fakingSyscall != -1)
 		{
+			printf("faking system call. Aborted.\n");
 			it++;
 			continue;
 		}
 		
+		printf("Ok, detaching it now.\n");
 		// TODO: check retval
-		ptrace(PTRACE_DETACH, pi->pid, NULL, NULL);
+		int retval = ptrace(PTRACE_DETACH, pi->pid, NULL, NULL);
+		if(retval == -1)
+		{
+			printf("Failed!\n");
+			switch(errno)
+			{
+				case EBUSY: printf("EBUSY\n"); break;
+				case EFAULT: printf("EFAULT\n"); break;
+				case EIO: printf("EIO\n"); break;
+				case EINVAL: printf("EINVAL\n"); break;
+				case EPERM: printf("EPERM\n"); break;
+				case ESRCH: printf("ESRCH\n"); break;
+				default: printf("Reason: Other\n");
+			}
+	
+			
+		}
+		
 		delete pi;
 		processes.erase(it++);
 	}
@@ -287,12 +309,12 @@ int main(int argc, char *argv[])
 	while(1)
 	{
 		// Wait for a syscall to be called
-		printf("Before wait\n");
+		//printf("Before wait\n");
 		// TODO: check if wait return value is -1
 		int pidReceived = wait(&status);
-		printf("After wait\n");
+		//printf("After wait\n");
 		// FIXME: || WIFSIGNALED?
-		while(WIFEXITED(status))
+		while(pidReceived != -1 && WIFEXITED(status))
 		{
 			printf("Process %d exited\n", pidReceived);
 			processes.erase(pidReceived);
@@ -305,9 +327,23 @@ int main(int argc, char *argv[])
 			}
 			
 			// Wait for another event
-			printf("Before wait2\n");
+			//printf("Before wait2\n");
 			pidReceived = wait(&status);
-			printf("After wait2\n");
+			//printf("After wait2\n");
+		}
+		
+		//temporary:
+        // I don't even remember why I wrote that here ;-)
+		if(pidReceived == -1 && errno == EINTR)
+		{
+			if(wantToExit)
+				tryDetachFromProcesses();
+
+			//if no more pids to trace:
+			if(processes.empty())
+				break;
+			
+			continue;
 		}
 		
 		processes_t::iterator it = processes.find(pidReceived);

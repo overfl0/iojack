@@ -15,7 +15,7 @@
 #include "sshijack.h"
 
 int wantToExit;
-
+void tryDetachFromProcesses();
 void signal_sigint(int sig)
 {
 	printf("Caught Ctrl+C, exiting... Press a second time to force.\n");
@@ -31,6 +31,7 @@ void signal_sigint(int sig)
 	//ptrace(PTRACE_DETACH, pid, NULL, NULL);
 	//exit(0);
 	wantToExit = 1;
+	tryDetachFromProcesses();
 }
 
 void setSignalHandlers()
@@ -226,6 +227,30 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 	}
 }
 
+void detachProcess(pid_t pid)
+{
+	printf("Ok, detaching %d... ", pid);
+	int retval = ptrace(PTRACE_DETACH, pid, NULL, NULL);
+	if(retval == -1)
+	{
+		printf("Failed!\n");
+		switch(errno)
+		{
+			case EBUSY: printf("EBUSY\n"); break;
+			case EFAULT: printf("EFAULT\n"); break;
+			case EIO: printf("EIO\n"); break;
+			case EINVAL: printf("EINVAL\n"); break;
+			case EPERM: printf("EPERM\n"); break;
+			case ESRCH: printf("ESRCH\n"); break;
+			default: printf("Reason: Other\n");
+		}
+	}
+	else
+	{
+		printf("OK!\n");
+	}
+}
+
 void tryDetachFromProcesses()
 {
 	printf("Trying to detach...\n");
@@ -235,7 +260,7 @@ void tryDetachFromProcesses()
 	while(it != processes.end())
 	{
 		processInfo *pi = it->second;
-		printf("Trying pid %d... ", pi->pid);
+		printf("Trying send SIGSTOP to pid %d... ", pi->pid);
 		
 		// If we're in the middle of faking a system call, we can't detach from this pid
 		if(pi->inSyscall && pi->fakingSyscall != -1)
@@ -245,28 +270,18 @@ void tryDetachFromProcesses()
 			continue;
 		}
 		
-		printf("Ok, detaching it now.\n");
-		// TODO: check retval
-		int retval = ptrace(PTRACE_DETACH, pi->pid, NULL, NULL);
-		if(retval == -1)
-		{
-			printf("Failed!\n");
-			switch(errno)
-			{
-				case EBUSY: printf("EBUSY\n"); break;
-				case EFAULT: printf("EFAULT\n"); break;
-				case EIO: printf("EIO\n"); break;
-				case EINVAL: printf("EINVAL\n"); break;
-				case EPERM: printf("EPERM\n"); break;
-				case ESRCH: printf("ESRCH\n"); break;
-				default: printf("Reason: Other\n");
-			}
-	
-			
-		}
+		//detachProcess(pi->pid);
 		
-		delete pi;
-		processes.erase(it++);
+		//delete pi;
+		//processes.erase(it++);
+		int retval = kill(pi->pid, SIGSTOP);
+		if(retval)
+		{
+			printf("Error while sending SIGSTOP to %d\n", pi->pid);
+			perror("Error");
+		}
+		it++;
+		printf("\n");
 	}
 }
 
@@ -314,17 +329,39 @@ int main(int argc, char *argv[])
 		int pidReceived = wait(&status);
 		//printf("After wait\n");
 		// FIXME: || WIFSIGNALED?
-		while(pidReceived != -1 && WIFEXITED(status))
+		while(pidReceived != -1)
 		{
-			printf("Process %d exited\n", pidReceived);
-			processes.erase(pidReceived);
-			
-			// If no more traced processes, then exit
-			if(processes.empty())
+			if(WIFEXITED(status))
 			{
-				// Got a better idea to break out of TWO while loops at once?
-				goto noMoreProcesses;
-			}
+				printf("Process %d exited\n", pidReceived);
+				processes.erase(pidReceived);
+			
+				// If no more traced processes, then exit
+				if(processes.empty())
+				{
+					// Got a better idea to break out of TWO while loops at once?
+					goto noMoreProcesses;
+				}
+			} else if(WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP)
+			{
+				printf("******WIFSTOPPED!******\n");
+				if(wantToExit)
+				{
+					// That's our chance! :)
+					printf("A pid stopped while we wanted to quit. Trying to detach now...\n");
+					detachProcess(pidReceived);
+					processes.erase(pidReceived);
+					// If no more traced processes, then exit
+					if(processes.empty())
+					{
+						// Got a better idea to break out of TWO while loops at once?
+						goto noMoreProcesses;
+					}
+				}
+				else
+					break;
+			} else
+				break;
 			
 			// Wait for another event
 			//printf("Before wait2\n");
@@ -337,7 +374,10 @@ int main(int argc, char *argv[])
 		if(pidReceived == -1 && errno == EINTR)
 		{
 			if(wantToExit)
+            {
+				printf("Got and error and want to exit. Things may become unstable now...\n");
 				tryDetachFromProcesses();
+            }
 
 			//if no more pids to trace:
 			if(processes.empty())

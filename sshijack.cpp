@@ -229,7 +229,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 
 void detachProcess(pid_t pid)
 {
-	printf("Ok, detaching %d... ", pid);
+	printf("Detaching %d... ", pid);
 	int retval = ptrace(PTRACE_DETACH, pid, NULL, NULL);
 	if(retval == -1)
 	{
@@ -244,6 +244,7 @@ void detachProcess(pid_t pid)
 			case ESRCH: printf("ESRCH\n"); break;
 			default: printf("Reason: Other\n");
 		}
+		perror("Detach failed");
 	}
 	else
 	{
@@ -274,6 +275,7 @@ void tryDetachFromProcesses()
 		
 		//delete pi;
 		//processes.erase(it++);
+		// TODO: something along the lines of pi->sentSigStop = 1
 		int retval = kill(pi->pid, SIGSTOP);
 		if(retval)
 		{
@@ -321,11 +323,10 @@ int main(int argc, char *argv[])
 	if(ptrace(PTRACE_SYSCALL, firstPid, NULL, NULL) == -1)
 		perrorexit("PTRACE_SYSCALL");
 	
+	//=========================================================================
 	while(1)
 	{
 		// Wait for a syscall to be called
-		//printf("Before wait\n");
-		// TODO: check if wait return value is -1
 		int pidReceived = wait(&status);
 		//printf("After wait\n");
 		// FIXME: || WIFSIGNALED?
@@ -394,28 +395,34 @@ int main(int argc, char *argv[])
 		processInfo *pi = it->second;
 		struct user_regs_struct regs;
 		// TODO: check retval
-		ptrace((__ptrace_request)PTRACE_GETREGS, it->second->pid, 0, &regs);
+		ptrace((__ptrace_request)PTRACE_GETREGS, pi->pid, 0, &regs);
 		
 		int saveRegs = 0;
 		processSyscall(pi, &regs, &saveRegs);
 		if(saveRegs)
 		{
 			// TODO: check retval
-			ptrace((__ptrace_request)PTRACE_SETREGS, it->second->pid, 0, &regs);
+			ptrace((__ptrace_request)PTRACE_SETREGS, pi->pid, 0, &regs);
 		}
 		
 		//if(inputBuffer.size() == 0)
 		//	wantToExit = 1;
 		
-		if(wantToExit)
-			tryDetachFromProcesses();
-
+		
+		if(wantToExit && pi->inSyscall == 0 && pi->fakingSyscall != -1)
+		{
+			detachProcess(pi->pid);
+			processes.erase(pi->pid);
+		// Moved to signal handler
+		//	tryDetachFromProcesses();
+		}
+		
 		//if no more pids to trace:
 		if(processes.empty())
 			break;
 		
 		// We are interested only in syscalls
-		if(ptrace(PTRACE_SYSCALL, it->second->pid, NULL, NULL) == -1)
+		if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
 			perrorexit("PTRACE_SYSCALL");
 	}
 	// Yes, dear purists, that's a label. Kill me!

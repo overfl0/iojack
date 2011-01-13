@@ -46,3 +46,8 @@ do \
 
 
 using namespace std;
+
+#define foreach(iterable, iterator)                                   \
+	for(__typeof__((iterable).begin()) iterator = (iterable).begin(); \
+		iterator != (iterable).end();                                 \
+		iterator++)

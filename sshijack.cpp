@@ -14,7 +14,7 @@
 
 #include "sshijack.h"
 
-int wantToExit;
+int wantToExit = 0;
 void tryDetachFromProcesses();
 void signal_sigint(int sig)
 {
@@ -28,9 +28,6 @@ void signal_sigint(int sig)
 
 	sigaction(SIGINT, &sa, NULL);
 
-	//ptrace(PTRACE_DETACH, pid, NULL, NULL);
-	//exit(0);
-	wantToExit = 1;
 	tryDetachFromProcesses();
 }
 
@@ -254,11 +251,10 @@ void detachProcess(pid_t pid)
 
 void tryDetachFromProcesses()
 {
-	printf("Trying to detach...\n");
-	processes_t::iterator it = processes.begin();
+	wantToExit = 1;
 	
-	// using a while loop instead of a for to be able to erase map elements in place
-	while(it != processes.end())
+	printf("Trying to detach...\n");
+	foreach(processes, it)
 	{
 		processInfo *pi = it->second;
 		printf("Trying send SIGSTOP to pid %d... ", pi->pid);
@@ -271,10 +267,6 @@ void tryDetachFromProcesses()
 			continue;
 		}
 		
-		//detachProcess(pi->pid);
-		
-		//delete pi;
-		//processes.erase(it++);
 		// TODO: something along the lines of pi->sentSigStop = 1
 		int retval = kill(pi->pid, SIGSTOP);
 		if(retval)
@@ -282,7 +274,6 @@ void tryDetachFromProcesses()
 			printf("Error while sending SIGSTOP to %d\n", pi->pid);
 			perror("Error");
 		}
-		it++;
 		printf("\n");
 	}
 }
@@ -292,7 +283,6 @@ int main(int argc, char *argv[])
 	setSignalHandlers();
 
 	inputBuffer.add("To jest test\n");
-	wantToExit = 0;
 
 	if(argc < 2)
 		pexit("Usage: %s <pid>\n", argv[0]);
@@ -343,7 +333,7 @@ int main(int argc, char *argv[])
 					// Got a better idea to break out of TWO while loops at once?
 					goto noMoreProcesses;
 				}
-			} else if(WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP)
+			} else if(WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP /*&& pi->sentSigStop? */)
 			{
 				printf("******WIFSTOPPED!******\n");
 				if(wantToExit)
@@ -413,13 +403,11 @@ int main(int argc, char *argv[])
 		{
 			detachProcess(pi->pid);
 			processes.erase(pi->pid);
-		// Moved to signal handler
-		//	tryDetachFromProcesses();
 		}
 		
 		//if no more pids to trace:
 		if(processes.empty())
-			break;
+			goto noMoreProcesses; // Use goto to be consistent with previous calls
 		
 		// We are interested only in syscalls
 		if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)

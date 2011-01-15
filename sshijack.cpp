@@ -94,11 +94,13 @@ inline long writeLong(unsigned long addr, unsigned long value, pid_t tracepid)
 
 inline int writeChar(unsigned long addr, unsigned char value, pid_t tracepid)
 {
-	//Check retval + errno!
+	//TODO: Check retval + errno!
 	unsigned long origVal = getValue(addr, tracepid);
 	unsigned char *p = (unsigned char *)&origVal;
 	*p = value;
 	writeLong(addr, origVal, tracepid);
+	
+	return -1; // In case I forget about the TODO
 }
 
 inline int wejscie(int status)
@@ -133,11 +135,11 @@ void readHook(pid_t pid, user_regs_struct &regs)
 {
 	//ssize_t read(int fd, void *buf, size_t count);
 	//eax read(ebx fd, ecx *buf, edx count);
-	int len = inputBuffer.size();
+	unsigned int len = inputBuffer.size();
 	if(regs.ARG3 < len)
 		len = regs.ARG3;
 	
-	for(int i = 0; i < len; i++)
+	for(unsigned int i = 0; i < len; i++)
 	{
 		char c = inputBuffer.get();
 		writeChar(regs.ARG2 + i, c, pid);
@@ -153,7 +155,7 @@ void writeHook(pid_t pid, user_regs_struct &regs)
 	printf("fd = %d\n", (int)regs.ARG1);
 	if(regs.ARG1 == 1 /*stdout*/ || regs.ARG1 == 2 /*stderr*/ )
 	{
-		for(int i = 0; i < regs.ARG3; i++)
+		for(unsigned int i = 0; i < regs.ARG3; i++)
 		{
 			unsigned long c = getValue(regs.ARG2 + i, pid);
 			printf("Wrote letter: %c\n", (int)c);
@@ -184,7 +186,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 			pi->fakingSyscall = regs->ORIG_RAX;
 
 			// This syscall can't exist :)
-			regs->ORIG_RAX = -1;
+			regs->ORIG_RAX = (unsigned int)-1;
 			regs->RAX = -1;
 
 			*saveRegs = 1;
@@ -204,7 +206,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 		printf("Exiting syscall: 0x%lx\n", regs->ORIG_RAX);
 		if(pi->fakingSyscall != -1)
 		{
-			if(regs->ORIG_RAX != -1)
+			if(regs->ORIG_RAX != (unsigned int)-1)
 				printf("OMG! :O\n");
 			printf("Trying to write something.\n");
 			// Second ptrace trap. We just finished running our

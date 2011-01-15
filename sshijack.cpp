@@ -12,6 +12,10 @@
 #include <signal.h>
 #include <string.h>
 
+#include <pthread.h>
+#include <time.h>
+//TODO: Clean up this code!
+
 #include "sshijack.h"
 #include "terminal.h"
 
@@ -49,23 +53,100 @@ class buffer
 //This is supposed to *work*
 private:
 	queue<unsigned char> data;
+	pthread_mutex_t mutex;
 public:
+	buffer()
+	{
+		pthread_mutex_init(&mutex, NULL);
+	}
+
+	void lock()
+	{
+		pthread_mutex_lock(&mutex);
+	}
+
+	void unlock()
+	{
+		pthread_mutex_unlock(&mutex);
+	}
+
 	void add(char c) {data.push(c);}
 	void add(const char *s)
 	{
 		for(const char *p = s; *p; p++)
 			data.push(*p);
 	}
-	int size() { return data.size(); }
+
+	void lockedAdd(char c)
+	{
+		lock();
+		add(c);
+		unlock();
+	}
+
+	void lockedAdd(const char *s)
+	{
+		lock();
+		add(s);
+		unlock();
+	}
+
+	int lockedSize()
+	{
+		lock();
+		int retval = data.size();
+		unlock();
+		return retval;
+	}
+
 	unsigned char get()
 	{
 		unsigned char c = data.front();
 		data.pop();
 		return c;
 	}
+
+	unsigned char lockedGet()
+	{
+		lock();
+		unsigned char retval = get();
+		unlock();
+		return retval;
+	}
 };
 
 buffer inputBuffer;
+
+void *stdinPoll(void *inBuf)
+{
+	buffer *inputBuffer = (buffer *)inBuf;
+	initTerminal();
+	while(!wantToExit)
+	{
+		int c = getTerminalChar();
+		if(c != -1)
+		{
+			// Lock the buffer and read as much data as you can (useful with
+			// special sequences of more than one character)
+			inputBuffer->lock();
+			do
+			{
+				inputBuffer->add(c);
+				c = getTerminalChar();
+			}
+			while(c != -1);
+			inputBuffer->unlock();
+		}
+		//thread_sleep(10);
+		struct timespec waitTime;
+		waitTime.tv_sec = 0;
+		waitTime.tv_nsec = 100000000; // 0.1 sec
+		nanosleep(&waitTime, NULL);
+	}
+	uninitTerminal();
+	
+	return NULL;
+}
 
 inline unsigned long getValue(unsigned long addr, pid_t tracepid)
 {
@@ -136,15 +217,17 @@ void readHook(pid_t pid, user_regs_struct &regs)
 {
 	//ssize_t read(int fd, void *buf, size_t count);
 	//eax read(ebx fd, ecx *buf, edx count);
-	unsigned int len = inputBuffer.size();
+	unsigned int len = inputBuffer.lockedSize();
 	if(regs.ARG3 < len)
 		len = regs.ARG3;
 	
+	inputBuffer.lock();
 	for(unsigned int i = 0; i < len; i++)
 	{
 		char c = inputBuffer.get();
 		writeChar(regs.ARG2 + i, c, pid);
 	}
+	inputBuffer.unlock();
 	regs.RAX = len;
 }
 
@@ -175,7 +258,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 	if(!pi->inSyscall)
 	{
 		printf("Entering syscall: 0x%lx\n", regs->ORIG_RAX);
-		if(inputBuffer.size() && regs->ORIG_RAX == SYS_read)
+		if(inputBuffer.lockedSize() && regs->ORIG_RAX == SYS_read)
 		{
 			printf("Syscall: 0x%lx\tfd: 0x%lx\tbuf: 0x%lx\tcount: 0x%lx\n", regs->ORIG_RAX, regs->ARG1, regs->ARG2, regs->ARG3);
 
@@ -258,6 +341,7 @@ void tryDetachFromProcesses()
 	
 	printf("Trying to detach...\n");
 	foreach(processes, it)
+	//for(map<pid_t, processInfo*>::iterator it = processes.begin(); it != processes.end(); it++)
 	{
 		processInfo *pi = it->second;
 		printf("Trying send SIGSTOP to pid %d... ", pi->pid);
@@ -266,7 +350,6 @@ void tryDetachFromProcesses()
 		if(pi->inSyscall && pi->fakingSyscall != -1)
 		{
 			printf("faking system call. Aborted.\n");
-			it++;
 			continue;
 		}
 		
@@ -283,10 +366,11 @@ void tryDetachFromProcesses()
 
 int main(int argc, char *argv[])
 {
+	pthread_t pollStdinThread;
 	setSignalHandlers();
 
-	//inputBuffer.add("To jest test\n");
-	inputBuffer.add("To jest test");
+	//inputBuffer.lockedAdd("To jest test\n");
+	inputBuffer.lockedAdd("To jest test");
 
 	if(argc < 2)
 		pexit("Usage: %s <pid>\n", argv[0]);
@@ -312,9 +396,9 @@ int main(int argc, char *argv[])
 		printf("Process %d exited\n", firstPid);
 		return 0;
 	}
-	
-	initTerminal();
-	
+
+	int retval = pthread_create(&pollStdinThread, NULL, stdinPoll, (void*)&inputBuffer);
+
 	// We are interested only in syscalls
 	if(ptrace(PTRACE_SYSCALL, firstPid, NULL, NULL) == -1)
 		perrorexit("PTRACE_SYSCALL");
@@ -322,12 +406,6 @@ int main(int argc, char *argv[])
 	//=========================================================================
 	while(1)
 	{
-		// Check if we have something to read from stdin
-		int inputChar = getTerminalChar();
-		if(inputChar != -1)
-		{
-			inputBuffer.add(inputChar);
-		}
 		// Wait for a syscall to be called
 		int pidReceived = wait(&status);
 		//printf("After wait\n");
@@ -378,7 +456,7 @@ int main(int argc, char *argv[])
 		{
 			if(wantToExit)
             {
-				printf("Got and error and want to exit. Things may become unstable now...\n");
+				printf("Got an error and want to exit. Things may become unstable now...\n");
 				tryDetachFromProcesses();
             }
 
@@ -427,8 +505,7 @@ int main(int argc, char *argv[])
 	}
 	// Yes, dear purists, that's a label. Kill me!
 	noMoreProcesses:
-	
-	uninitTerminal();
+	pthread_join(pollStdinThread, NULL);
 	
 	return 0;
 }

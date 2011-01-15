@@ -1,5 +1,5 @@
-LDFLAGS+=
-CXXFLAGS+=-Wall
+LDFLAGS+=-lpthread
+CXXFLAGS+=-Wall -Wno-unused-variable
 FILES=sshijack.o terminal.o
 EXECUTABLE=sshijack
 

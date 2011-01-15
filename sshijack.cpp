@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "sshijack.h"
+#include "terminal.h"
 
 int wantToExit = 0;
 void tryDetachFromProcesses();
@@ -284,7 +285,8 @@ int main(int argc, char *argv[])
 {
 	setSignalHandlers();
 
-	inputBuffer.add("To jest test\n");
+	//inputBuffer.add("To jest test\n");
+	inputBuffer.add("To jest test");
 
 	if(argc < 2)
 		pexit("Usage: %s <pid>\n", argv[0]);
@@ -311,6 +313,8 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 	
+	initTerminal();
+	
 	// We are interested only in syscalls
 	if(ptrace(PTRACE_SYSCALL, firstPid, NULL, NULL) == -1)
 		perrorexit("PTRACE_SYSCALL");
@@ -318,6 +322,12 @@ int main(int argc, char *argv[])
 	//=========================================================================
 	while(1)
 	{
+		// Check if we have something to read from stdin
+		int inputChar = getTerminalChar();
+		if(inputChar != -1)
+		{
+			inputBuffer.add(inputChar);
+		}
 		// Wait for a syscall to be called
 		int pidReceived = wait(&status);
 		//printf("After wait\n");
@@ -417,6 +427,8 @@ int main(int argc, char *argv[])
 	}
 	// Yes, dear purists, that's a label. Kill me!
 	noMoreProcesses:
+	
+	uninitTerminal();
 	
 	return 0;
 }

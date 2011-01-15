@@ -1,6 +1,6 @@
 LDFLAGS+=
 CXXFLAGS+=-Wall
-FILES=sshijack.o
+FILES=sshijack.o terminal.o
 EXECUTABLE=sshijack
 
 $(EXECUTABLE): $(FILES)
@@ -10,8 +10,8 @@ $(FILES): %.o: %.cpp %.h
 	$(CXX) -c -o $@ $< $(CXXFLAGS)
 
 clean:
-	rm -f *~ *.o $(EXECUTABLE)
+	rm -f *~ .gitignore~ *.o $(EXECUTABLE)
 
-#sshijack.o: additionnal.h
+sshijack.o: terminal.h
 
 .PHONY: clean

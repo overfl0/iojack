@@ -406,73 +406,49 @@ int main(int argc, char *argv[])
 	//=========================================================================
 	while(1)
 	{
-		// Wait for a syscall to be called
-		int pidReceived = wait(&status);
-		//printf("After wait\n");
-		// FIXME: || WIFSIGNALED?
-		while(pidReceived != -1)
+		if(processes.empty())
 		{
-			if(WIFEXITED(status))
-			{
-				printf("Process %d exited\n", pidReceived);
-				processes.erase(pidReceived);
-			
-				// If no more traced processes, then exit
-				if(processes.empty())
-				{
-					// Got a better idea to break out of TWO while loops at once?
-					goto noMoreProcesses;
-				}
-			} else if(WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP /*&& pi->sentSigStop? */)
-			{
-				printf("******WIFSTOPPED!******\n");
-				if(wantToExit)
-				{
-					// That's our chance! :)
-					printf("A pid stopped while we wanted to quit. Trying to detach now...\n");
-					detachProcess(pidReceived);
-					processes.erase(pidReceived);
-					// If no more traced processes, then exit
-					if(processes.empty())
-					{
-						// Got a better idea to break out of TWO while loops at once?
-						goto noMoreProcesses;
-					}
-				}
-				else
-					break;
-			} else
-				break;
-			
-			// Wait for another event
-			//printf("Before wait2\n");
-			pidReceived = wait(&status);
-			//printf("After wait2\n");
+			// Got a better idea to break out of TWO while loops at once?
+			goto noMoreProcesses;
 		}
 		
-		//temporary:
-        // I don't even remember why I wrote that here ;-)
-		if(pidReceived == -1 && errno == EINTR)
+		// Wait for a syscall to be called
+		int pidReceived = wait(&status);
+		if(pidReceived == -1)
 		{
-			if(wantToExit)
-            {
-				printf("Got an error and want to exit. Things may become unstable now...\n");
-				tryDetachFromProcesses();
-            }
-
-			//if no more pids to trace:
-			if(processes.empty())
-				break;
-			
+			perror("wait");
 			continue;
 		}
 		
+		// pidReceived != -1, so get full info about this process
 		processes_t::iterator it = processes.find(pidReceived);
 		if(it == processes.end())
 			// On purpose. This may be a bug that should not get unnoticed!
 			pexit("Unexpected pid %d received by wait call\n", pidReceived);
+		processInfo * pi = it->second;
 		
-		processInfo *pi = it->second;
+		if(WIFEXITED(status) || WIFSIGNALED(status))
+		{
+			printf("Process %d exited\n", pidReceived);
+			processes.erase(pidReceived);
+			
+			continue;
+		} 
+		
+		if(WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP /*&& pi->sentSigStop? */)
+		{
+			printf("******WIFSTOPPED!******\n");
+			if(wantToExit)
+			{
+				// That's our chance! :)
+				printf("A pid stopped while we wanted to quit. Trying to detach now...\n");
+				detachProcess(pidReceived);
+				processes.erase(pidReceived);
+				continue;
+			}
+		}
+		
+		//=Handle syscalls and registers=======================================
 		struct user_regs_struct regs;
 		// TODO: check retval
 		ptrace((__ptrace_request)PTRACE_GETREGS, pi->pid, 0, &regs);
@@ -484,20 +460,14 @@ int main(int argc, char *argv[])
 			// TODO: check retval
 			ptrace((__ptrace_request)PTRACE_SETREGS, pi->pid, 0, &regs);
 		}
-		
-		//if(inputBuffer.size() == 0)
-		//	wantToExit = 1;
-		
+		//=====================================================================
 		
 		if(wantToExit && pi->inSyscall == 0 && pi->fakingSyscall != -1)
 		{
 			detachProcess(pi->pid);
 			processes.erase(pi->pid);
+			continue;
 		}
-		
-		//if no more pids to trace:
-		if(processes.empty())
-			goto noMoreProcesses; // Use goto to be consistent with previous calls
 		
 		// We are interested only in syscalls
 		if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
@@ -505,6 +475,7 @@ int main(int argc, char *argv[])
 	}
 	// Yes, dear purists, that's a label. Kill me!
 	noMoreProcesses:
+	wantToExit = 1;
 	pthread_join(pollStdinThread, NULL);
 	
 	return 0;

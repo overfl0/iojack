@@ -117,39 +117,6 @@ public:
 
 buffer inputBuffer;
 
-void *stdinPoll(void *inBuf)
-{
-	buffer *inputBuffer = (buffer *)inBuf;
-	initTerminal();
-	while(!wantToExit)
-	{
-		int c = getTerminalChar();
-		if(c != -1)
-		{
-			// Lock the buffer and read as much data as you can (useful with
-			// special sequences of more than one character)
-			inputBuffer->lock();
-			do
-			{
-				inputBuffer->add(c);
-				c = getTerminalChar();
-			}
-			while(c != -1);
-			inputBuffer->unlock();
-			
-			//sigstopToRestartSyscall
-		}
-		//thread_sleep(10);
-		struct timespec waitTime;
-		waitTime.tv_sec = 0;
-		waitTime.tv_nsec = 100000000; // 0.1 sec
-		nanosleep(&waitTime, NULL);
-	}
-	uninitTerminal();
-	
-	return NULL;
-}
-
 inline unsigned long getValue(unsigned long addr, pid_t tracepid)
 {
 	unsigned long retval = ptrace(PTRACE_PEEKDATA,tracepid,addr,0);
@@ -211,6 +178,53 @@ class processInfo
 typedef map<pid_t, processInfo*> processes_t;
 processes_t processes;
 
+void *stdinPoll(void *inBuf)
+{
+	buffer *inputBuffer = (buffer *)inBuf;
+	initTerminal();
+	while(!wantToExit)
+	{
+		int c = getTerminalChar();
+		if(c != -1)
+		{
+			// Lock the buffer and read as much data as you can (useful with
+			// special sequences of more than one character)
+			inputBuffer->lock();
+			do
+			{
+				inputBuffer->add(c);
+				c = getTerminalChar();
+			}
+			while(c != -1);
+			inputBuffer->unlock();
+			
+			// TODO: Clean up this mess! Possibly move to a separate function
+			// Wake up reading processes
+			foreach(processes, it)
+			{
+				if(it->second->inSyscall && it->second->fakingSyscall == -1)
+				{
+					//TODO: if possible, check if the syscall is sys_read
+					it->second->sigstopToRestartSyscall = 1;
+					int retval = kill(it->second->pid, SIGSTOP);
+					if(retval)
+					{
+						printf("Error while sending SIGSTOP to %d\n", it->second->pid);
+						perror("Error");
+					}
+				}
+			}
+		}
+		//thread_sleep(10);
+		struct timespec waitTime;
+		waitTime.tv_sec = 0;
+		waitTime.tv_nsec = 100000000; // 0.1 sec
+		nanosleep(&waitTime, NULL);
+	}
+	uninitTerminal();
+	
+	return NULL;
+}
 
 // ============= HOOKS =============
 void readHook(pid_t pid, user_regs_struct &regs)
@@ -370,7 +384,7 @@ int main(int argc, char *argv[])
 	setSignalHandlers();
 
 	//inputBuffer.lockedAdd("To jest test\n");
-	inputBuffer.lockedAdd("Ab");
+	//inputBuffer.lockedAdd("Ab");
 
 	if(argc < 2)
 		pexit("Usage: %s <pid>\n", argv[0]);
@@ -447,16 +461,14 @@ int main(int argc, char *argv[])
 				continue;
 			}
 			
-			// Unimplemented
 			if(pi->sigstopToRestartSyscall)
 			{
 				printf("Restarting tracing of pid %d\n", pi->pid);
 				pi->sigstopToRestartSyscall = 0;
 				
-				//FIXME: Change inSyscall?
-				
 				if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
 					perrorexit("PTRACE_SYSCALL");
+				continue;
 			}
 		}
 		

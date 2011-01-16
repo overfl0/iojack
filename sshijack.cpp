@@ -460,13 +460,12 @@ int main(int argc, char *argv[])
 			}
 		}
 		
-		// If is't not our signal, send it to the program and continue the loop
+		// If is't not our signal, forward it to the program and continue the loop
 		if(WIFSTOPPED(status) && WSTOPSIG(status) != SIGTRAP)
 		{
 			printf("Stopped with signal: %d\n", WSTOPSIG(status));
-			//TODO: Forward the signal to the program
 		
-			if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
+			if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, WSTOPSIG(status)) == -1)
 				perrorexit("PTRACE_SYSCALL");
 			continue;
 		}

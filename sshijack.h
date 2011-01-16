@@ -51,3 +51,10 @@ using namespace std;
 	for(__typeof__((iterable).begin()) iterator = (iterable).begin(); \
 		iterator != (iterable).end();                                 \
 		iterator++)
+
+//#define DEBUG
+#ifdef DEBUG
+#define dprintf(x...) printf(x)
+#else
+#define dprintf(x...)
+#endif

@@ -139,7 +139,7 @@ inline long writeLong(unsigned long addr, unsigned long value, pid_t tracepid)
 		perror(tmp);
 	}
 	else
-		printf("Write OK!\n");
+		dprintf("Write OK!\n");
 	return retval;
 }
 
@@ -250,14 +250,17 @@ void writeHook(pid_t pid, user_regs_struct &regs)
 	// ssize_t write(int fd, const void *buf, size_t count);
 	//ssize_t retval = write(regs.ARG1, regs.ARG2, regs.ARG3);
 	//write(stdout, regs.ARG2, regs.ARG3);
-	printf("fd = %d\n", (int)regs.ARG1);
+	dprintf("fd = %d\n", (int)regs.ARG1);
 	if(regs.ARG1 == 1 /*stdout*/ || regs.ARG1 == 2 /*stderr*/ )
 	{
 		for(unsigned int i = 0; i < regs.ARG3; i++)
 		{
 			unsigned long c = getValue(regs.ARG2 + i, pid);
-			printf("Wrote letter: %c\n", (int)c);
+			dprintf("Wrote letter: ");
+			printf("%c", (int)c);
+			dprintf("\n");
 		}
+		fflush(stdout);
 	}
 	
 	//return retval;
@@ -271,10 +274,10 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 	//printf("__RAX: %ld (orig: %ld)\n", regs->RAX, regs->ORIG_RAX);
 	if(!pi->inSyscall)
 	{
-		printf("Entering syscall: 0x%lx\n", regs->ORIG_RAX);
+		dprintf("Entering syscall: 0x%lx\n", regs->ORIG_RAX);
 		if(inputBuffer.lockedSize() && regs->ORIG_RAX == SYS_read)
 		{
-			printf("Syscall: 0x%lx\tfd: 0x%lx\tbuf: 0x%lx\tcount: 0x%lx\n", regs->ORIG_RAX, regs->ARG1, regs->ARG2, regs->ARG3);
+			dprintf("Syscall: 0x%lx\tfd: 0x%lx\tbuf: 0x%lx\tcount: 0x%lx\n", regs->ORIG_RAX, regs->ARG1, regs->ARG2, regs->ARG3);
 
 			//TODO: check whether fd == 0 (input)
 			// First ptrace trap. We are about to run a syscall.
@@ -292,7 +295,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 		
 		if(regs->ORIG_RAX == SYS_write)
 		{
-			printf("Got a write syscall!\n");
+			dprintf("Got a write syscall!\n");
 			writeHook(pi->pid, *regs);
 		}
 		
@@ -301,12 +304,12 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 	}
 	else // Exiting from a syscall
 	{
-		printf("Exiting syscall: 0x%lx\n", regs->ORIG_RAX);
+		dprintf("Exiting syscall: 0x%lx\n", regs->ORIG_RAX);
 		if(pi->fakingSyscall != -1)
 		{
 			if(regs->ORIG_RAX != (unsigned int)-1)
 				printf("OMG! :O\n");
-			printf("Trying to write something.\n");
+			dprintf("Trying to write something.\n");
 			// Second ptrace trap. We just finished running our
 			// nonexisting syscall. Now is the moment to inject the
 			// "correct" return values, etc...
@@ -451,7 +454,7 @@ int main(int argc, char *argv[])
 		
 		if(WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP)
 		{
-			printf("******WIFSTOPPED!******\n");
+			dprintf("******WIFSTOPPED!******\n");
 			if(pi->sigstopToDetach)
 			{
 				// That's our chance! :)
@@ -463,7 +466,7 @@ int main(int argc, char *argv[])
 			
 			if(pi->sigstopToRestartSyscall)
 			{
-				printf("Restarting tracing of pid %d\n", pi->pid);
+				dprintf("Restarting tracing of pid %d\n", pi->pid);
 				pi->sigstopToRestartSyscall = 0;
 				
 				if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)

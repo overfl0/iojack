@@ -136,6 +136,8 @@ void *stdinPoll(void *inBuf)
 			}
 			while(c != -1);
 			inputBuffer->unlock();
+			
+			//sigstopToRestartSyscall
 		}
 		//thread_sleep(10);
 		struct timespec waitTime;
@@ -185,14 +187,6 @@ inline int writeChar(unsigned long addr, unsigned char value, pid_t tracepid)
 	return -1; // In case I forget about the TODO
 }
 
-inline int wejscie(int status)
-{
-	if(WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP)
-		return 1;
-	else
-		return 0;
-}
-
 class processInfo
 {
 	public:
@@ -201,11 +195,17 @@ class processInfo
 		pid = newPid;
 		inSyscall = 0;
 		fakingSyscall = -1;
+		
+		sigstopToDetach = 0;
+		sigstopToRestartSyscall = 0;
 	}
 
 	pid_t pid;
 	int inSyscall;
 	int fakingSyscall;
+	
+	int sigstopToDetach;
+	int sigstopToRestartSyscall;
 };
 
 typedef map<pid_t, processInfo*> processes_t;
@@ -353,7 +353,7 @@ void tryDetachFromProcesses()
 			continue;
 		}
 		
-		// TODO: something along the lines of pi->sentSigStop = 1
+		pi->sigstopToDetach = 1;
 		int retval = kill(pi->pid, SIGSTOP);
 		if(retval)
 		{
@@ -370,7 +370,7 @@ int main(int argc, char *argv[])
 	setSignalHandlers();
 
 	//inputBuffer.lockedAdd("To jest test\n");
-	inputBuffer.lockedAdd("To jest test");
+	inputBuffer.lockedAdd("Ab");
 
 	if(argc < 2)
 		pexit("Usage: %s <pid>\n", argv[0]);
@@ -435,16 +435,28 @@ int main(int argc, char *argv[])
 			continue;
 		} 
 		
-		if(WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP /*&& pi->sentSigStop? */)
+		if(WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP)
 		{
 			printf("******WIFSTOPPED!******\n");
-			if(wantToExit)
+			if(pi->sigstopToDetach)
 			{
 				// That's our chance! :)
 				printf("A pid stopped while we wanted to quit. Trying to detach now...\n");
 				detachProcess(pidReceived);
 				processes.erase(pidReceived);
 				continue;
+			}
+			
+			// Unimplemented
+			if(pi->sigstopToRestartSyscall)
+			{
+				printf("Restarting tracing of pid %d\n", pi->pid);
+				pi->sigstopToRestartSyscall = 0;
+				
+				//FIXME: Change inSyscall?
+				
+				if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
+					perrorexit("PTRACE_SYSCALL");
 			}
 		}
 		

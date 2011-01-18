@@ -305,5 +305,6 @@ const char *syscallToStr(int callnr)
 	if(callnr == 296) return "__NR_pwritev";
 	if(callnr == 297) return "__NR_rt_tgsigqueueinfo";
 	if(callnr == 298) return "__NR_perf_event_open";
+	if(callnr == -1) return "FAKED";
 	return "<unknown>";
 }

@@ -279,7 +279,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 	{
 		dprintf("[%d] Entering syscall: %s (%ld), rax = %ld\n",
 				pi->pid, syscallToStr(regs->ORIG_RAX), regs->ORIG_RAX, regs->RAX);
-		if(inputBuffer.lockedSize() && regs->ORIG_RAX == SYS_read)
+		if(inputBuffer.lockedSize() && regs->ORIG_RAX == SYS_read && regs->ARG1 == 0)
 		{
 			dprintf("Syscall: 0x%lx\tfd: 0x%lx\tbuf: 0x%lx\tcount: 0x%lx\n", regs->ORIG_RAX, regs->ARG1, regs->ARG2, regs->ARG3);
 
@@ -416,9 +416,9 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 	
-	if(ptrace(PTRACE_SETOPTIONS, firstPid, NULL, PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE
-		//| PTRACE_O_TRACEEXEC/*| PTRACE_O_TRACESYSGOOD ? */
-		) == -1)
+	if(ptrace(PTRACE_SETOPTIONS, firstPid, NULL,
+		PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC
+		/*| PTRACE_O_TRACESYSGOOD ? */) == -1)
 		perrorexit("PTRACE_SETOPTIONS");
 
 	int retval = pthread_create(&pollStdinThread, NULL, stdinPoll, (void*)&inputBuffer);

@@ -1,3 +1,6 @@
+#ifndef SSHIJACK_H
+#define SSHIJACK_H
+
 #if defined(__i386__) || defined(M_IX86) /* x86 arch */
 //#warning x86 architecture detected
 
@@ -52,9 +55,11 @@ using namespace std;
 		iterator != (iterable).end();                                 \
 		iterator++)
 
-//#define DEBUG
+#define DEBUG
 #ifdef DEBUG
 #define dprintf(x...) printf(x)
 #else
 #define dprintf(x...)
+#endif
+
 #endif

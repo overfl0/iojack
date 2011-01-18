@@ -18,6 +18,7 @@
 
 #include "sshijack.h"
 #include "terminal.h"
+#include "syscallToStr.h"
 
 int wantToExit = 0;
 void tryDetachFromProcesses();
@@ -165,6 +166,7 @@ class processInfo
 		
 		sigstopToDetach = 0;
 		sigstopToRestartSyscall = 0;
+		sigstopNewChild = 0;
 	}
 
 	pid_t pid;
@@ -173,6 +175,7 @@ class processInfo
 	
 	int sigstopToDetach;
 	int sigstopToRestartSyscall;
+	int sigstopNewChild;
 };
 
 typedef map<pid_t, processInfo*> processes_t;
@@ -274,7 +277,8 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 	//printf("__RAX: %ld (orig: %ld)\n", regs->RAX, regs->ORIG_RAX);
 	if(!pi->inSyscall)
 	{
-		dprintf("Entering syscall: 0x%lx\n", regs->ORIG_RAX);
+		dprintf("[%d] Entering syscall: %s (%ld), rax = %ld\n",
+				pi->pid, syscallToStr(regs->ORIG_RAX), regs->ORIG_RAX, regs->RAX);
 		if(inputBuffer.lockedSize() && regs->ORIG_RAX == SYS_read)
 		{
 			dprintf("Syscall: 0x%lx\tfd: 0x%lx\tbuf: 0x%lx\tcount: 0x%lx\n", regs->ORIG_RAX, regs->ARG1, regs->ARG2, regs->ARG3);
@@ -304,12 +308,13 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 	}
 	else // Exiting from a syscall
 	{
-		dprintf("Exiting syscall: 0x%lx\n", regs->ORIG_RAX);
+		dprintf("[%d] Exiting syscall:  %s (%ld)   with code %ld\n",
+				pi->pid, syscallToStr(regs->ORIG_RAX), regs->ORIG_RAX, regs->RAX);
 		if(pi->fakingSyscall != -1)
 		{
 			if(regs->ORIG_RAX != (unsigned int)-1)
-				printf("OMG! :O\n");
-			dprintf("Trying to write something.\n");
+				printf("[%d] OMG! :O, regs->ORIG_RAX == %ld\n", pi->pid, regs->ORIG_RAX);
+			dprintf("[%d] Trying to write something.\n", pi->pid);
 			// Second ptrace trap. We just finished running our
 			// nonexisting syscall. Now is the moment to inject the
 			// "correct" return values, etc...
@@ -402,9 +407,6 @@ int main(int argc, char *argv[])
 
 	processes[firstPid] = new processInfo(firstPid);
 
-	/*if(ptrace(PTRACE_SETOPTIONS, pid, NULL, PTRACE_O_TRACESYSGOOD) == -1)
-		perrorexit("PTRACE_SETOPTIONS"); */
-
 	int status;
 	// Should be checked
 	firstPid = wait(&status);
@@ -413,6 +415,11 @@ int main(int argc, char *argv[])
 		printf("Process %d exited\n", firstPid);
 		return 0;
 	}
+	
+	if(ptrace(PTRACE_SETOPTIONS, firstPid, NULL, PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE
+		//| PTRACE_O_TRACEEXEC/*| PTRACE_O_TRACESYSGOOD ? */
+		) == -1)
+		perrorexit("PTRACE_SETOPTIONS");
 
 	int retval = pthread_create(&pollStdinThread, NULL, stdinPoll, (void*)&inputBuffer);
 
@@ -446,7 +453,7 @@ int main(int argc, char *argv[])
 		
 		if(WIFEXITED(status) || WIFSIGNALED(status))
 		{
-			printf("Process %d exited\n", pidReceived);
+			dprintf("Process %d exited\n", pidReceived);
 			processes.erase(pidReceived);
 			
 			continue;
@@ -458,7 +465,7 @@ int main(int argc, char *argv[])
 			if(pi->sigstopToDetach)
 			{
 				// That's our chance! :)
-				printf("A pid stopped while we wanted to quit. Trying to detach now...\n");
+				printf("Pid %d stopped while we wanted to quit. Trying to detach now...\n", pi->pid);
 				detachProcess(pidReceived);
 				processes.erase(pidReceived);
 				continue;
@@ -473,15 +480,52 @@ int main(int argc, char *argv[])
 					perrorexit("PTRACE_SYSCALL");
 				continue;
 			}
+			
+			if(pi->sigstopNewChild)
+			{
+				pi->sigstopNewChild = 0;
+				dprintf("[%d] The new child has stopped.\n", pi->pid);
+				if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
+					perrorexit("PTRACE_SYSCALL");
+				continue;
+			}
 		}
 		
 		// If is't not our signal, forward it to the program and continue the loop
 		if(WIFSTOPPED(status) && WSTOPSIG(status) != SIGTRAP)
 		{
-			printf("Stopped with signal: %d\n", WSTOPSIG(status));
+			dprintf("Pid %d stopped with signal: %d\n", pi->pid, WSTOPSIG(status));
 		
 			if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, WSTOPSIG(status)) == -1)
 				perrorexit("PTRACE_SYSCALL");
+			continue;
+		}
+		
+		// Check if we have got a new child
+		// FIXME: Find a macro that returns the event
+		int event = status >> 16;
+		if(event == PTRACE_EVENT_FORK || event == PTRACE_EVENT_VFORK || event == PTRACE_EVENT_CLONE)
+		{
+			unsigned long newPid;
+			// TODO: check retval
+			ptrace(PTRACE_GETEVENTMSG, pi->pid, 0, &newPid);
+			processInfo *newPi = new processInfo(newPid);
+			newPi->sigstopNewChild = 1;
+			processes[newPid] = newPi;
+			
+			if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
+				perrorexit("PTRACE_SYSCALL");
+			
+			continue;
+		}
+		if(event == PTRACE_EVENT_EXEC)
+		{
+			printf("###################################################################\n");
+			printf("Wykryto exec!\n");
+			printf("###################################################################\n");
+			if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
+				perrorexit("PTRACE_SYSCALL");
+			
 			continue;
 		}
 		

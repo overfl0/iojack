@@ -447,8 +447,10 @@ int main(int argc, char *argv[])
 		// pidReceived != -1, so get full info about this process
 		processes_t::iterator it = processes.find(pidReceived);
 		if(it == processes.end())
+		{
 			// On purpose. This may be a bug that should not get unnoticed!
 			pexit("Unexpected pid %d received by wait call\n", pidReceived);
+		}
 		processInfo * pi = it->second;
 		
 		if(WIFEXITED(status) || WIFSIGNALED(status))
@@ -461,7 +463,7 @@ int main(int argc, char *argv[])
 		
 		if(WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP)
 		{
-			dprintf("******WIFSTOPPED!******\n");
+			dprintf("[%d] ******WIFSTOPPED!******\n", pi->pid);
 			if(pi->sigstopToDetach)
 			{
 				// That's our chance! :)
@@ -507,8 +509,9 @@ int main(int argc, char *argv[])
 		if(event == PTRACE_EVENT_FORK || event == PTRACE_EVENT_VFORK || event == PTRACE_EVENT_CLONE)
 		{
 			unsigned long newPid;
-			// TODO: check retval
-			ptrace(PTRACE_GETEVENTMSG, pi->pid, 0, &newPid);
+			if(ptrace(PTRACE_GETEVENTMSG, pi->pid, 0, &newPid) == -1)
+				perrorexit("PTRACE_GETEVENTMSG");
+			printf("A new process forked/vforked/cloned: %lu\n", newPid);
 			processInfo *newPi = new processInfo(newPid);
 			newPi->sigstopNewChild = 1;
 			processes[newPid] = newPi;
@@ -520,9 +523,9 @@ int main(int argc, char *argv[])
 		}
 		if(event == PTRACE_EVENT_EXEC)
 		{
-			printf("###################################################################\n");
-			printf("Wykryto exec!\n");
-			printf("###################################################################\n");
+			dprintf("###################################################################\n");
+			dprintf("Wykryto exec!\n");
+			dprintf("###################################################################\n");
 			if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
 				perrorexit("PTRACE_SYSCALL");
 			
@@ -532,14 +535,16 @@ int main(int argc, char *argv[])
 		//=Handle syscalls and registers=======================================
 		struct user_regs_struct regs;
 		// TODO: check retval
-		ptrace((__ptrace_request)PTRACE_GETREGS, pi->pid, 0, &regs);
+		if(ptrace((__ptrace_request)PTRACE_GETREGS, pi->pid, 0, &regs) == -1)
+			perrorexit("PTRACE_GETREGS");
 		
 		int saveRegs = 0;
 		processSyscall(pi, &regs, &saveRegs);
 		if(saveRegs)
 		{
 			// TODO: check retval
-			ptrace((__ptrace_request)PTRACE_SETREGS, pi->pid, 0, &regs);
+			if(ptrace((__ptrace_request)PTRACE_SETREGS, pi->pid, 0, &regs) == -1)
+				perrorexit("PTRACE_SETREGS");
 		}
 		//=====================================================================
 		

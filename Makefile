@@ -1,6 +1,6 @@
 LDFLAGS+=-lpthread
 CXXFLAGS+=-Wall -Wno-unused-variable
-FILES=sshijack.o terminal.o syscallToStr.o
+FILES=sshijack.o terminal.o syscallToStr.o buffer.o
 EXECUTABLE=sshijack
 
 $(EXECUTABLE): $(FILES)
@@ -12,7 +12,7 @@ $(FILES): %.o: %.cpp %.h
 clean:
 	rm -f *~ .gitignore~ *.o $(EXECUTABLE)
 
-sshijack.o: terminal.h syscallToStr.h
+sshijack.o: terminal.h syscallToStr.h buffer.h
 syscallToStr.o: sshijack.h
 
 .PHONY: clean

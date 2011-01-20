@@ -19,6 +19,7 @@
 #include "sshijack.h"
 #include "terminal.h"
 #include "syscallToStr.h"
+#include "buffer.h"
 
 int wantToExit = 0;
 void tryDetachFromProcesses();
@@ -48,73 +49,7 @@ void setSignalHandlers()
 	sigaction(SIGINT, &sa, NULL);
 }
 
-class buffer
-{
-//Disclaimer: This is not supposed to be optimal
-//This is supposed to *work*
-private:
-	queue<unsigned char> data;
-	pthread_mutex_t mutex;
-public:
-	buffer()
-	{
-		pthread_mutex_init(&mutex, NULL);
-	}
 
-	void lock()
-	{
-		pthread_mutex_lock(&mutex);
-	}
-
-	void unlock()
-	{
-		pthread_mutex_unlock(&mutex);
-	}
-
-	void add(char c) {data.push(c);}
-	void add(const char *s)
-	{
-		for(const char *p = s; *p; p++)
-			data.push(*p);
-	}
-
-	void lockedAdd(char c)
-	{
-		lock();
-		add(c);
-		unlock();
-	}
-
-	void lockedAdd(const char *s)
-	{
-		lock();
-		add(s);
-		unlock();
-	}
-
-	int lockedSize()
-	{
-		lock();
-		int retval = data.size();
-		unlock();
-		return retval;
-	}
-
-	unsigned char get()
-	{
-		unsigned char c = data.front();
-		data.pop();
-		return c;
-	}
-
-	unsigned char lockedGet()
-	{
-		lock();
-		unsigned char retval = get();
-		unlock();
-		return retval;
-	}
-};
 
 buffer inputBuffer;
 
@@ -421,6 +356,7 @@ int main(int argc, char *argv[])
 		/*| PTRACE_O_TRACESYSGOOD ? */) == -1)
 		perrorexit("PTRACE_SETOPTIONS");
 
+	// TODO: Check retval
 	int retval = pthread_create(&pollStdinThread, NULL, stdinPoll, (void*)&inputBuffer);
 
 	// We are interested only in syscalls
@@ -487,6 +423,12 @@ int main(int argc, char *argv[])
 			{
 				pi->sigstopNewChild = 0;
 				dprintf("[%d] The new child has stopped.\n", pi->pid);
+				
+				if(ptrace(PTRACE_SETOPTIONS, pi->pid, NULL,
+				   PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC
+				   /*| PTRACE_O_TRACESYSGOOD ? */) == -1)
+					perrorexit("PTRACE_SETOPTIONS");
+				
 				if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
 					perrorexit("PTRACE_SYSCALL");
 				continue;
@@ -512,6 +454,7 @@ int main(int argc, char *argv[])
 			if(ptrace(PTRACE_GETEVENTMSG, pi->pid, 0, &newPid) == -1)
 				perrorexit("PTRACE_GETEVENTMSG");
 			printf("A new process forked/vforked/cloned: %lu\n", newPid);
+			
 			processInfo *newPi = new processInfo(newPid);
 			newPi->sigstopNewChild = 1;
 			processes[newPid] = newPi;

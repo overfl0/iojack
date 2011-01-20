@@ -2,6 +2,7 @@
 #define BUFFER_H
 
 #include <queue>
+#include <pthread.h>
 
 using namespace std;
 
@@ -11,7 +12,7 @@ class buffer
 //This is supposed to *work*
 private:
 	queue<unsigned char> data;
-	pthread_mutex_t *mutex;
+	pthread_mutex_t mutex;
 public:
 	buffer();
 	~buffer();

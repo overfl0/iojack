@@ -20,6 +20,7 @@
 #include "terminal.h"
 #include "syscallToStr.h"
 #include "buffer.h"
+#include "processes.h"
 
 int wantToExit = 0;
 void tryDetachFromProcesses();
@@ -49,69 +50,7 @@ void setSignalHandlers()
 	sigaction(SIGINT, &sa, NULL);
 }
 
-
-
 buffer inputBuffer;
-
-inline unsigned long getValue(unsigned long addr, pid_t tracepid)
-{
-	unsigned long retval = ptrace(PTRACE_PEEKDATA,tracepid,addr,0);
-	if(retval == (unsigned long)-1 && errno != 0)
-	{
-		perror("ptrace read");
-		printf("errno: %d\n", errno);
-	}
-	//throw "Exception!!!";
-	return retval;
-}
-
-inline long writeLong(unsigned long addr, unsigned long value, pid_t tracepid)
-{
-	long retval = ptrace(PTRACE_POKEDATA,tracepid,addr, value);
-	if(retval == -1)
-	{
-		char tmp[100];
-		sprintf(tmp, "ptrace write at addr 0x%lx", addr);
-		perror(tmp);
-	}
-	else
-		dprintf("Write OK!\n");
-	return retval;
-}
-
-inline int writeChar(unsigned long addr, unsigned char value, pid_t tracepid)
-{
-	//TODO: Check retval + errno!
-	unsigned long origVal = getValue(addr, tracepid);
-	unsigned char *p = (unsigned char *)&origVal;
-	*p = value;
-	writeLong(addr, origVal, tracepid);
-	
-	return -1; // In case I forget about the TODO
-}
-
-class processInfo
-{
-	public:
-	processInfo(pid_t newPid)
-	{
-		pid = newPid;
-		inSyscall = 0;
-		fakingSyscall = -1;
-		
-		sigstopToDetach = 0;
-		sigstopToRestartSyscall = 0;
-		sigstopNewChild = 0;
-	}
-
-	pid_t pid;
-	int inSyscall;
-	int fakingSyscall;
-	
-	int sigstopToDetach;
-	int sigstopToRestartSyscall;
-	int sigstopNewChild;
-};
 
 typedef map<pid_t, processInfo*> processes_t;
 processes_t processes;
@@ -165,7 +104,7 @@ void *stdinPoll(void *inBuf)
 }
 
 // ============= HOOKS =============
-void readHook(pid_t pid, user_regs_struct &regs)
+void readHook(processInfo *pi, user_regs_struct &regs)
 {
 	//ssize_t read(int fd, void *buf, size_t count);
 	//eax read(ebx fd, ecx *buf, edx count);
@@ -177,13 +116,13 @@ void readHook(pid_t pid, user_regs_struct &regs)
 	for(unsigned int i = 0; i < len; i++)
 	{
 		char c = inputBuffer.get();
-		writeChar(regs.ARG2 + i, c, pid);
+		pi->writeChar(regs.ARG2 + i, c);
 	}
 	inputBuffer.unlock();
 	regs.RAX = len;
 }
 
-void writeHook(pid_t pid, user_regs_struct &regs)
+void writeHook(processInfo *pi, user_regs_struct &regs)
 {
 	// ssize_t write(int fd, const void *buf, size_t count);
 	//ssize_t retval = write(regs.ARG1, regs.ARG2, regs.ARG3);
@@ -193,7 +132,7 @@ void writeHook(pid_t pid, user_regs_struct &regs)
 	{
 		for(unsigned int i = 0; i < regs.ARG3; i++)
 		{
-			unsigned long c = getValue(regs.ARG2 + i, pid);
+			unsigned long c = pi->getValue(regs.ARG2 + i);
 			dprintf("Wrote letter: ");
 			printf("%c", (int)c);
 			dprintf("\n");
@@ -235,7 +174,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 		if(regs->ORIG_RAX == SYS_write)
 		{
 			dprintf("Got a write syscall!\n");
-			writeHook(pi->pid, *regs);
+			writeHook(pi, *regs);
 		}
 		
 		
@@ -255,7 +194,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 			// "correct" return values, etc...
 			switch(pi->fakingSyscall)
 			{
-			case SYS_read: readHook(pi->pid, *regs); break;
+			case SYS_read: readHook(pi, *regs); break;
 				
 			}
 

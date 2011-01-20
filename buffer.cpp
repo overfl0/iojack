@@ -1,26 +1,22 @@
-
 #include "buffer.h"
-#include <pthread.h>
+
 buffer::buffer()
 {
-	mutex = new pthread_mutex_t;
-	pthread_mutex_init(mutex, NULL);
+	pthread_mutex_init(&mutex, NULL);
 }
 
 buffer::~buffer()
 {
-	if(mutex)
-		delete mutex;
 }
 
 void buffer::lock()
 {
-	pthread_mutex_lock(mutex);
+	pthread_mutex_lock(&mutex);
 }
 
 void buffer::unlock()
 {
-	pthread_mutex_unlock(mutex);
+	pthread_mutex_unlock(&mutex);
 }
 
 void buffer::add(char c) {data.push(c);}

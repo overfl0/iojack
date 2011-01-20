@@ -28,6 +28,9 @@ class processInfo
 	unsigned long getValue(unsigned long addr);
 	long writeLong(unsigned long addr, unsigned long value);
 	int writeChar(unsigned long addr, unsigned char value);
+	
+	void detachProcess();
+	void stopAtSyscall(int signal = 0);
 };
 
 #endif

@@ -157,7 +157,6 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 		{
 			dprintf("Syscall: 0x%lx\tfd: 0x%lx\tbuf: 0x%lx\tcount: 0x%lx\n", regs->ORIG_RAX, regs->ARG1, regs->ARG2, regs->ARG3);
 
-			//TODO: check whether fd == 0 (input)
 			// First ptrace trap. We are about to run a syscall.
 			// Remember it and change it to a nonexisting one
 			// Then wait for ptrace to stop execution again after
@@ -203,31 +202,6 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 		}
 		
 		pi->inSyscall = 0;
-	}
-}
-
-void detachProcess(pid_t pid)
-{
-	printf("Detaching %d... ", pid);
-	int retval = ptrace(PTRACE_DETACH, pid, NULL, NULL);
-	if(retval == -1)
-	{
-		printf("Failed!\n");
-		switch(errno)
-		{
-			case EBUSY: printf("EBUSY\n"); break;
-			case EFAULT: printf("EFAULT\n"); break;
-			case EIO: printf("EIO\n"); break;
-			case EINVAL: printf("EINVAL\n"); break;
-			case EPERM: printf("EPERM\n"); break;
-			case ESRCH: printf("ESRCH\n"); break;
-			default: printf("Reason: Other\n");
-		}
-		perror("Detach failed");
-	}
-	else
-	{
-		printf("OK!\n");
 	}
 }
 
@@ -299,8 +273,7 @@ int main(int argc, char *argv[])
 	int retval = pthread_create(&pollStdinThread, NULL, stdinPoll, (void*)&inputBuffer);
 
 	// We are interested only in syscalls
-	if(ptrace(PTRACE_SYSCALL, firstPid, NULL, NULL) == -1)
-		perrorexit("PTRACE_SYSCALL");
+	processes[firstPid]->stopAtSyscall();
 	
 	//=========================================================================
 	while(1)
@@ -343,7 +316,7 @@ int main(int argc, char *argv[])
 			{
 				// That's our chance! :)
 				printf("Pid %d stopped while we wanted to quit. Trying to detach now...\n", pi->pid);
-				detachProcess(pidReceived);
+				pi->detachProcess();
 				processes.erase(pidReceived);
 				continue;
 			}
@@ -353,8 +326,7 @@ int main(int argc, char *argv[])
 				dprintf("Restarting tracing of pid %d\n", pi->pid);
 				pi->sigstopToRestartSyscall = 0;
 				
-				if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
-					perrorexit("PTRACE_SYSCALL");
+				pi->stopAtSyscall();
 				continue;
 			}
 			
@@ -368,8 +340,7 @@ int main(int argc, char *argv[])
 				   /*| PTRACE_O_TRACESYSGOOD ? */) == -1)
 					perrorexit("PTRACE_SETOPTIONS");
 				
-				if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
-					perrorexit("PTRACE_SYSCALL");
+				pi->stopAtSyscall();
 				continue;
 			}
 		}
@@ -379,8 +350,7 @@ int main(int argc, char *argv[])
 		{
 			dprintf("Pid %d stopped with signal: %d\n", pi->pid, WSTOPSIG(status));
 		
-			if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, WSTOPSIG(status)) == -1)
-				perrorexit("PTRACE_SYSCALL");
+			pi->stopAtSyscall(WSTOPSIG(status));
 			continue;
 		}
 		
@@ -398,8 +368,7 @@ int main(int argc, char *argv[])
 			newPi->sigstopNewChild = 1;
 			processes[newPid] = newPi;
 			
-			if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
-				perrorexit("PTRACE_SYSCALL");
+			pi->stopAtSyscall();
 			
 			continue;
 		}
@@ -408,8 +377,7 @@ int main(int argc, char *argv[])
 			dprintf("###################################################################\n");
 			dprintf("Wykryto exec!\n");
 			dprintf("###################################################################\n");
-			if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
-				perrorexit("PTRACE_SYSCALL");
+			pi->stopAtSyscall();
 			
 			continue;
 		}
@@ -432,14 +400,13 @@ int main(int argc, char *argv[])
 		
 		if(wantToExit && pi->inSyscall == 0 && pi->fakingSyscall != -1)
 		{
-			detachProcess(pi->pid);
+			pi->detachProcess();
 			processes.erase(pi->pid);
 			continue;
 		}
 		
 		// We are interested only in syscalls
-		if(ptrace(PTRACE_SYSCALL, pi->pid, NULL, NULL) == -1)
-			perrorexit("PTRACE_SYSCALL");
+		pi->stopAtSyscall();
 	}
 	// Yes, dear purists, that's a label. Kill me!
 	noMoreProcesses:

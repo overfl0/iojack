@@ -1,10 +1,12 @@
 #include <stdio.h>
+#include <stdlib.h>      // exit()
 #include <sys/ptrace.h>
 #include <errno.h>
 
 #include "processes.h"
 #include "sshijack.h"
 
+// Memory access
 unsigned long processInfo::getValue(unsigned long addr)
 {
 	unsigned long retval = ptrace(PTRACE_PEEKDATA, pid, addr, 0);
@@ -40,4 +42,45 @@ int processInfo::writeChar(unsigned long addr, unsigned char value)
 	writeLong(addr, origVal);
 	
 	return -1; // In case I forget about the TODO
+}
+
+// Remaining methods
+
+static void printPtraceError(int error)
+{
+	switch(error)
+	{
+		case EBUSY: printf("EBUSY\n"); break;
+		case EFAULT: printf("EFAULT\n"); break;
+		case EIO: printf("EIO\n"); break;
+		case EINVAL: printf("EINVAL\n"); break;
+		case EPERM: printf("EPERM\n"); break;
+		case ESRCH: printf("ESRCH\n"); break;
+		default: printf("Reason: Other\n");
+	}
+}
+
+void processInfo::detachProcess()
+{
+	printf("Detaching %d... ", pid);
+	int retval = ptrace(PTRACE_DETACH, pid, NULL, NULL);
+	if(retval == -1)
+	{
+		printf("Failed! ");
+		printPtraceError(errno);
+		perror("Detach failed");
+	}
+	else
+	{
+		printf("OK!\n");
+	}
+}
+
+void processInfo::stopAtSyscall(int signal)
+{
+	if(ptrace(PTRACE_SYSCALL, pid, NULL, signal) == -1)
+	{
+		printPtraceError(errno);
+		perrorexit("PTRACE_SYSCALL");
+	}
 }

@@ -21,6 +21,7 @@
 #include "syscallToStr.h"
 #include "buffer.h"
 #include "processes.h"
+#include "syscalls.h"
 
 int wantToExit = 0;
 void tryDetachFromProcesses();
@@ -50,7 +51,7 @@ void setSignalHandlers()
 	sigaction(SIGINT, &sa, NULL);
 }
 
-buffer inputBuffer;
+extern buffer inputBuffer;
 
 typedef map<pid_t, processInfo*> processes_t;
 processes_t processes;
@@ -103,103 +104,68 @@ void *stdinPoll(void *inBuf)
 	return NULL;
 }
 
-// ============= HOOKS =============
-void readHook(processInfo *pi, user_regs_struct &regs)
-{
-	//ssize_t read(int fd, void *buf, size_t count);
-	//eax read(ebx fd, ecx *buf, edx count);
-	unsigned int len = inputBuffer.lockedSize();
-	if(regs.ARG3 < len)
-		len = regs.ARG3;
-	
-	inputBuffer.lock();
-	for(unsigned int i = 0; i < len; i++)
-	{
-		char c = inputBuffer.get();
-		pi->writeChar(regs.ARG2 + i, c);
-	}
-	inputBuffer.unlock();
-	regs.RAX = len;
-}
-
-void writeHook(processInfo *pi, user_regs_struct &regs)
-{
-	// ssize_t write(int fd, const void *buf, size_t count);
-	//ssize_t retval = write(regs.ARG1, regs.ARG2, regs.ARG3);
-	//write(stdout, regs.ARG2, regs.ARG3);
-	dprintf("fd = %d\n", (int)regs.ARG1);
-	if(regs.ARG1 == 1 /*stdout*/ || regs.ARG1 == 2 /*stderr*/ )
-	{
-		for(unsigned int i = 0; i < regs.ARG3; i++)
-		{
-			unsigned long c = pi->getValue(regs.ARG2 + i);
-			dprintf("Wrote letter: ");
-			printf("%c", (int)c);
-			dprintf("\n");
-		}
-		fflush(stdout);
-	}
-	
-	//return retval;
-}
-
-// ======== END OF HOOKS ===========
-
 void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 {
 	// regs->ORIG_RAX - Syscall number
 	//printf("__RAX: %ld (orig: %ld)\n", regs->RAX, regs->ORIG_RAX);
+	// We're either in a syscall or not
 	if(!pi->inSyscall)
 	{
 		dprintf("[%d] Entering syscall: %s (%ld), rax = %ld\n",
 				pi->pid, syscallToStr(regs->ORIG_RAX), regs->ORIG_RAX, regs->RAX);
-		if(inputBuffer.lockedSize() && regs->ORIG_RAX == SYS_read && regs->ARG1 == 0)
+				
+		hookPtr fun = getPreHook(regs->ORIG_RAX);
+		if(fun)
 		{
-			dprintf("Syscall: 0x%lx\tfd: 0x%lx\tbuf: 0x%lx\tcount: 0x%lx\n", regs->ORIG_RAX, regs->ARG1, regs->ARG2, regs->ARG3);
+			int fakeSyscall = 0;
+			// Run a hooked function
+			fun(pi, *regs, *saveRegs, fakeSyscall);
+			
+			if(fakeSyscall)
+			{
+				pi->fakingSyscall = regs->ORIG_RAX;
 
-			// First ptrace trap. We are about to run a syscall.
-			// Remember it and change it to a nonexisting one
-			// Then wait for ptrace to stop execution again after
-			// running it.
-			pi->fakingSyscall = regs->ORIG_RAX;
+				// This syscall can't exist :)
+				regs->ORIG_RAX = (unsigned int)-1;
+				regs->RAX = -1;
 
-			// This syscall can't exist :)
-			regs->ORIG_RAX = (unsigned int)-1;
-			regs->RAX = -1;
-
-			*saveRegs = 1;
+				*saveRegs = 1;
+			}
 		}
-		
-		if(regs->ORIG_RAX == SYS_write)
-		{
-			dprintf("Got a write syscall!\n");
-			writeHook(pi, *regs);
-		}
-		
 		
 		pi->inSyscall = 1;
 	}
-	else // Exiting from a syscall
+	else // Exiting a syscall
 	{
-		dprintf("[%d] Exiting syscall:  %s (%ld)   with code %ld\n",
-				pi->pid, syscallToStr(regs->ORIG_RAX), regs->ORIG_RAX, regs->RAX);
+		dprintf("[%d] Exiting syscall:  %s (%ld)   with code %ld\n", pi->pid, syscallToStr(regs->ORIG_RAX), regs->ORIG_RAX, regs->RAX);
+		
+		int unused;
 		if(pi->fakingSyscall != -1)
 		{
 			if(regs->ORIG_RAX != (unsigned int)-1)
 				printf("[%d] OMG! :O, regs->ORIG_RAX == %ld\n", pi->pid, regs->ORIG_RAX);
-			dprintf("[%d] Trying to write something.\n", pi->pid);
+			
 			// Second ptrace trap. We just finished running our
 			// nonexisting syscall. Now is the moment to inject the
 			// "correct" return values, etc...
-			switch(pi->fakingSyscall)
+			hookPtr fun = getFakedHook(pi->fakingSyscall);
+			if(fun)
+				fun(pi, *regs, *saveRegs, unused);
+			else
 			{
-			case SYS_read: readHook(pi, *regs); break;
-				
+				// Should not happen!
+				printf("[%d] Can't find function handling fake %s! (%d).\n", pi->pid, syscallToStr(pi->fakingSyscall), pi->fakingSyscall);
+				exit(1);
 			}
-
-			*saveRegs = 1;
+			
+			regs->ORIG_RAX = pi->fakingSyscall;
 			pi->fakingSyscall = -1;
 		}
+		
+		// Not tested. Check by yourself if you use this
+		hookPtr postFun = getPostHook(regs->ORIG_RAX);
+		if(postFun)
+			postFun(pi, *regs, *saveRegs, unused);
 		
 		pi->inSyscall = 0;
 	}
@@ -238,6 +204,7 @@ int main(int argc, char *argv[])
 {
 	pthread_t pollStdinThread;
 	setSignalHandlers();
+	initSyscallHooks();
 
 	//inputBuffer.lockedAdd("To jest test\n");
 	//inputBuffer.lockedAdd("Ab");
@@ -269,8 +236,9 @@ int main(int argc, char *argv[])
 		/*| PTRACE_O_TRACESYSGOOD ? */) == -1)
 		perrorexit("PTRACE_SETOPTIONS");
 
-	// TODO: Check retval
 	int retval = pthread_create(&pollStdinThread, NULL, stdinPoll, (void*)&inputBuffer);
+	if(retval)
+		perrorexit("Reading input thread");
 
 	// We are interested only in syscalls
 	processes[firstPid]->stopAtSyscall();
@@ -384,7 +352,6 @@ int main(int argc, char *argv[])
 		
 		//=Handle syscalls and registers=======================================
 		struct user_regs_struct regs;
-		// TODO: check retval
 		if(ptrace((__ptrace_request)PTRACE_GETREGS, pi->pid, 0, &regs) == -1)
 			perrorexit("PTRACE_GETREGS");
 		
@@ -392,7 +359,6 @@ int main(int argc, char *argv[])
 		processSyscall(pi, &regs, &saveRegs);
 		if(saveRegs)
 		{
-			// TODO: check retval
 			if(ptrace((__ptrace_request)PTRACE_SETREGS, pi->pid, 0, &regs) == -1)
 				perrorexit("PTRACE_SETREGS");
 		}

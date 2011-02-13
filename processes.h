@@ -28,6 +28,8 @@ class processInfo
 	unsigned long getValue(unsigned long addr);
 	long writeLong(unsigned long addr, unsigned long value);
 	int writeChar(unsigned long addr, unsigned char value);
+	void readMemcpy(void *dest, unsigned long remoteAddr, unsigned int n);
+	void writeMemcpy(unsigned long remoteAddr, void *src, unsigned int n);
 	
 	void detachProcess();
 	void stopAtSyscall(int signal = 0);

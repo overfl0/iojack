@@ -117,8 +117,8 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 		hookPtr fun = getPreHook(regs->ORIG_RAX);
 		if(fun)
 		{
-			int fakeSyscall = 0;
 			// Run a hooked function
+			int fakeSyscall = 0;
 			fun(pi, *regs, *saveRegs, fakeSyscall);
 			
 			if(fakeSyscall)

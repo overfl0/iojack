@@ -44,6 +44,92 @@ int processInfo::writeChar(unsigned long addr, unsigned char value)
 	return -1; // In case I forget about the TODO
 }
 
+// FIXME: Needs testing
+void processInfo::readMemcpy(void *dest, unsigned long remoteAddr, unsigned int n)
+{
+	unsigned long *udest = (unsigned long *)dest;
+	dprintf("readMemcpy(dest=%lx, remoteAddr=%lx, uint n=%u\n", (unsigned long)dest, remoteAddr, n);
+	for(; n >= sizeof(unsigned long); n -= sizeof(unsigned long))
+	{
+		//dprintf("%u\n", n);
+		unsigned long retval = ptrace(PTRACE_PEEKDATA, pid, remoteAddr, 0);
+		if(retval == (unsigned long)-1 && errno != 0)
+		{
+			perror("readMemcpy - ptrace read");
+			return;
+		}
+		
+		*udest++ = retval;
+		remoteAddr += sizeof(unsigned long);
+	}
+	
+	if(n > 0)
+	{
+		unsigned long retval = ptrace(PTRACE_PEEKDATA, pid, remoteAddr, 0);
+		if(retval == (unsigned long)-1 && errno != 0)
+		{
+			perror("readMemcpy - ptrace read2");
+			return;
+		}
+		
+		char *c = (char *)&retval;
+		for(unsigned int i = 0; i < n; i++)
+		{
+			//dprintf("%d\n", i);
+			((char *)udest)[i] = c[i];
+		}
+	}
+	
+}
+
+// FIXME: Needs testing
+void processInfo::writeMemcpy(unsigned long remoteAddr, void *src, unsigned int n)
+{
+	unsigned long *usrc = (unsigned long *)src;
+	dprintf("writeMemcpy(remoteAddr=%lx, src=%lx, uint n=%u\n", remoteAddr, (unsigned long)src, n);
+	
+	for(; n >= sizeof(unsigned long); n -= sizeof(unsigned long))
+	{
+		long retval = ptrace(PTRACE_POKEDATA, pid, remoteAddr, *usrc);
+		if(retval == -1)
+		{
+			perror("writeMemcpy - ptrace write 1");
+			return;
+		}
+		
+		usrc++;
+		remoteAddr += sizeof(unsigned long);
+	}
+	
+	if(n > 0)
+	{
+		// Read the whole ulong into memory
+		unsigned long remoteData = ptrace(PTRACE_PEEKDATA, pid, remoteAddr, 0);
+		if(remoteData == (unsigned long)-1 && errno != 0)
+		{
+			perror("writeMemcpy - ptrace read");
+			return;
+		}
+		
+		// Modify only the requested bits
+		char *c = (char *)&remoteData;
+		for(unsigned int i = 0; i < n; i++)
+		{
+			//dprintf("%d\n", i);
+			c[i] = ((char *)usrc)[i];
+		}
+		
+		// Write it back
+		long retval = ptrace(PTRACE_POKEDATA, pid, remoteAddr, remoteData);
+		if(retval == -1)
+		{
+			perror("writeMemcpy - ptrace write 2");
+			return;
+		}
+	}
+	
+}
+
 // Remaining methods
 
 static void printPtraceError(int error)

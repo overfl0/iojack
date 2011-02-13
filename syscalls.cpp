@@ -5,6 +5,7 @@
 #include <vector>
 #include <stdexcept> // out_of_range exception
 #include <sys/syscall.h>
+#include <sys/select.h>
 
 using namespace std;
 
@@ -108,6 +109,60 @@ void preWriteHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &f
 	//return retval;
 }
 
+void preSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &fakeSyscall)
+{
+	//int maxDwords = sizeof(fd_set) / sizeof(__fd_mask);
+	//printf("MaxDwords: %d\n", maxDwords);
+	fd_set inSet;
+	if(regs.ARG2 && inputBuffer.lockedSize())
+	{
+		pi->readMemcpy(&inSet, regs.ARG2, sizeof(fd_set));
+		if(FD_ISSET(0, &inSet))
+		{
+			dprintf("### Select(stdin!); ###\n");
+			fakeSyscall = 1;
+		}
+	}
+	
+}
+
+void fakeSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
+{
+	regs.RAX = 0;
+	
+	// readfds
+	if(regs.ARG2 && inputBuffer.lockedSize())
+	{
+		fd_set readSet;
+		pi->readMemcpy(&readSet, regs.ARG3, sizeof(fd_set));
+		FD_ZERO(&readSet);
+		FD_SET(0, &readSet);
+		pi->writeMemcpy(regs.ARG3, &readSet, sizeof(fd_set));
+		
+		regs.RAX += 1;
+	}
+	
+	// writefds
+	if(regs.ARG3)
+	{
+		fd_set writeSet;
+		pi->readMemcpy(&writeSet, regs.ARG3, sizeof(fd_set));
+		FD_ZERO(&writeSet);
+		pi->writeMemcpy(regs.ARG3, &writeSet, sizeof(fd_set));
+	}
+	
+	// exceptfds
+	if(regs.ARG4)
+	{
+		fd_set exceptSet;
+		pi->readMemcpy(&exceptSet, regs.ARG4, sizeof(fd_set));
+		FD_ZERO(&exceptSet);
+		pi->writeMemcpy(regs.ARG4, &exceptSet, sizeof(fd_set));
+	}
+	
+	saveRegs = 1;
+}
+
 // ======== END OF HOOKS ===========
 
 void initSyscallHooks()
@@ -115,4 +170,6 @@ void initSyscallHooks()
 	addHook(preSyscall, SYS_write, preWriteHook);
 	addHook(preSyscall, SYS_read, preReadHook);
 	addHook(fakedSyscall, SYS_read, fakedReadHook);
+	addHook(preSyscall, SYS_select, preSelectHook);
+	addHook(fakedSyscall, SYS_select, fakeSelectHook);
 }

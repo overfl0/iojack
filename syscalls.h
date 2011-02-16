@@ -7,7 +7,6 @@
 void initSyscallHooks();
 
 typedef void (*hookPtr)(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &hookSyscall);
-//typedef void (*hookPtr)(processInfo *pi, user_regs_struct &regs);
 
 hookPtr getPreHook(int syscall);
 hookPtr getFakedHook(int syscall);

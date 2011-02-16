@@ -3,9 +3,9 @@
 #include "sshijack.h"
 #include "buffer.h"
 #include <vector>
-#include <stdexcept> // out_of_range exception
 #include <sys/syscall.h>
 #include <sys/select.h>
+#include <poll.h>
 
 using namespace std;
 
@@ -119,7 +119,6 @@ void preSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &
 		pi->readMemcpy(&inSet, regs.ARG2, sizeof(fd_set));
 		if(FD_ISSET(0, &inSet))
 		{
-			dprintf("### Select(stdin!); ###\n");
 			fakeSyscall = 1;
 		}
 	}
@@ -134,10 +133,10 @@ void fakeSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int 
 	if(regs.ARG2 && inputBuffer.lockedSize())
 	{
 		fd_set readSet;
-		pi->readMemcpy(&readSet, regs.ARG3, sizeof(fd_set));
+		pi->readMemcpy(&readSet, regs.ARG2, sizeof(fd_set));
 		FD_ZERO(&readSet);
 		FD_SET(0, &readSet);
-		pi->writeMemcpy(regs.ARG3, &readSet, sizeof(fd_set));
+		pi->writeMemcpy(regs.ARG2, &readSet, sizeof(fd_set));
 		
 		regs.RAX += 1;
 	}
@@ -152,18 +151,74 @@ void fakeSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int 
 	}
 	
 	// exceptfds
-	if(regs.ARG4)
+	if(regs.ARG4
+		&& regs.ARG4 != (unsigned long)-1 // Nano temporary workaround
+		)
 	{
 		fd_set exceptSet;
 		pi->readMemcpy(&exceptSet, regs.ARG4, sizeof(fd_set));
 		FD_ZERO(&exceptSet);
 		pi->writeMemcpy(regs.ARG4, &exceptSet, sizeof(fd_set));
 	}
+/*	if(regs.ARG4 == (unsigned long)-1)
+	{
+		printf("Nano, srsly, WTF?!?\n");
+		printf("EIP: %lx\n", regs.rip);
+		
+	}
+*/
+	saveRegs = 1;
+}
+
+void prePollHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &fakeSyscall)
+{
+	// int poll(struct pollfd *fds, nfds_t nfds, int timeout);
+	if(regs.ARG2 && inputBuffer.lockedSize())
+	{
+		pollfd fds[regs.ARG2];
+		pi->readMemcpy(&fds, regs.ARG1, regs.ARG2 * sizeof(pollfd));
+		
+		for(unsigned int i = 0; i < regs.ARG2; i++)
+		{
+			if(fds[i].fd == 0 && (fds[0].events & POLLIN))
+			{
+				fakeSyscall = 1;
+				return;
+			}
+		}
+	}
+}
+
+void fakePollHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
+{
+	regs.RAX = 0;
+	
+	if(regs.ARG2 && inputBuffer.lockedSize())
+	{
+		pollfd fds[regs.ARG2];
+		pi->readMemcpy(&fds, regs.ARG1, regs.ARG2 * sizeof(pollfd));
+		
+		for(unsigned int i = 0; i < regs.ARG2; i++)
+		{
+			if(fds[i].fd == 0 && (fds[0].events & POLLIN))
+			{
+				fds[0].revents = POLLIN;
+				regs.RAX += 1;
+			}
+			else
+				fds[0].revents = 0;
+		}
+		
+		pi->writeMemcpy(regs.ARG1, &fds, regs.ARG2 * sizeof(pollfd));
+	}
 	
 	saveRegs = 1;
 }
 
 // ======== END OF HOOKS ===========
+
+//void prePollHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &fakeSyscall)
+//void fakePollHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
 
 void initSyscallHooks()
 {
@@ -172,4 +227,6 @@ void initSyscallHooks()
 	addHook(fakedSyscall, SYS_read, fakedReadHook);
 	addHook(preSyscall, SYS_select, preSelectHook);
 	addHook(fakedSyscall, SYS_select, fakeSelectHook);
+	addHook(preSyscall, SYS_poll, prePollHook);
+	addHook(fakedSyscall, SYS_poll, fakePollHook);
 }

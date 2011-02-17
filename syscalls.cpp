@@ -60,7 +60,7 @@ buffer inputBuffer;
 // ============= HOOKS =============
 void preReadHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &fakeSyscall)
 {
-	if(inputBuffer.lockedSize() && regs.ARG1 == 0)
+	if(inputBuffer.lockedSize() && pi->isStdin(regs.ARG1))
 	{
 		dprintf("Syscall: 0x%lx\tfd: 0x%lx\tbuf: 0x%lx\tcount: 0x%lx\n", regs.ORIG_RAX, regs.ARG1, regs.ARG2, regs.ARG3);
 		fakeSyscall = 1;
@@ -94,7 +94,7 @@ void preWriteHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &f
 	//write(stdout, regs.ARG2, regs.ARG3);
 	dprintf("Got a write syscall!\n");
 	dprintf("fd = %d\n", (int)regs.ARG1);
-	if(regs.ARG1 == 1 /*stdout*/ || regs.ARG1 == 2 /*stderr*/ )
+	if(pi->isStdout(regs.ARG1) || pi->isStderr(regs.ARG1))
 	{
 		for(unsigned int i = 0; i < regs.ARG3; i++)
 		{
@@ -114,13 +114,15 @@ void preSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &
 	//int maxDwords = sizeof(fd_set) / sizeof(__fd_mask);
 	//printf("MaxDwords: %d\n", maxDwords);
 	fd_set inSet;
-	if(regs.ARG2 && inputBuffer.lockedSize())
+	if(regs.ARG2 && inputBuffer.lockedSize() && pi->stdin.size())
 	{
 		pi->readMemcpy(&inSet, regs.ARG2, sizeof(fd_set));
-		if(FD_ISSET(0, &inSet))
-		{
-			fakeSyscall = 1;
-		}
+		foreach(pi->stdin, it)
+			if(FD_ISSET(*it, &inSet))
+			{
+				fakeSyscall = 1;
+				return;
+			}
 	}
 	
 }
@@ -130,12 +132,18 @@ void fakeSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int 
 	regs.RAX = 0;
 	
 	// readfds
-	if(regs.ARG2 && inputBuffer.lockedSize())
+	if(regs.ARG2 && inputBuffer.lockedSize() && pi->stdin.size())
 	{
 		fd_set readSet;
 		pi->readMemcpy(&readSet, regs.ARG2, sizeof(fd_set));
+		// Get the file descriptor
+		int fd = 0;
+		foreach(pi->stdin, it)
+			if(FD_ISSET(*it, &readSet))
+				fd = *it;
+		
 		FD_ZERO(&readSet);
-		FD_SET(0, &readSet);
+		FD_SET(fd, &readSet);
 		pi->writeMemcpy(regs.ARG2, &readSet, sizeof(fd_set));
 		
 		regs.RAX += 1;
@@ -173,14 +181,14 @@ void fakeSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int 
 void prePollHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &fakeSyscall)
 {
 	// int poll(struct pollfd *fds, nfds_t nfds, int timeout);
-	if(regs.ARG2 && inputBuffer.lockedSize())
+	if(regs.ARG2 && inputBuffer.lockedSize() && pi->stdin.size())
 	{
 		pollfd fds[regs.ARG2];
 		pi->readMemcpy(&fds, regs.ARG1, regs.ARG2 * sizeof(pollfd));
 		
 		for(unsigned int i = 0; i < regs.ARG2; i++)
 		{
-			if(fds[i].fd == 0 && (fds[0].events & POLLIN))
+			if(pi->isStdin(fds[i].fd) && (fds[i].events & POLLIN))
 			{
 				fakeSyscall = 1;
 				return;
@@ -200,13 +208,14 @@ void fakePollHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &u
 		
 		for(unsigned int i = 0; i < regs.ARG2; i++)
 		{
-			if(fds[i].fd == 0 && (fds[0].events & POLLIN))
+			fds[i].revents = 0;
+			
+			if(pi->isStdin(fds[i].fd) && (fds[i].events & POLLIN))
 			{
-				fds[0].revents = POLLIN;
+				fds[i].revents = POLLIN;
 				regs.RAX += 1;
+				// Maybe force all other revents to 0 now that we've found one valid stdin fd?
 			}
-			else
-				fds[0].revents = 0;
 		}
 		
 		pi->writeMemcpy(regs.ARG1, &fds, regs.ARG2 * sizeof(pollfd));

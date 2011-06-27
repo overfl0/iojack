@@ -218,7 +218,16 @@ int main(int argc, char *argv[])
 
 	printf("Attaching to pid: %d\n", firstPid);
 	if(ptrace(PTRACE_ATTACH, firstPid, NULL, NULL) == -1)
-		perrorexit("PTRACE_ATTACH");
+	{
+		if(errno == EPERM)
+		{
+			pexit("Could not attach to process due to lack of permissions\n"
+			      "If you're on ubuntu, you may try the following as root:\n"
+			      "echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope\n");
+		}
+		else
+			perrorexit("PTRACE_ATTACH");
+	}
 
 	processes[firstPid] = new processInfo(firstPid);
 
@@ -265,7 +274,14 @@ int main(int argc, char *argv[])
 		if(it == processes.end())
 		{
 			// On purpose. This may be a bug that should not get unnoticed!
-			pexit("Unexpected pid %d received by wait call\n", pidReceived);
+			//pexit("Unexpected pid %d received by wait call\n", pidReceived);
+			
+			// Too bad that this may happen on clone() and fork() calls :(
+			// Ugly workaround
+			// FIXME TODO FIXME TODO This is WAY too ugly to be kept unchanged
+			processes[pidReceived] = new processInfo(pidReceived);
+			it = processes.find(pidReceived);
+			it->second->sigstopNewChild = 1;
 		}
 		processInfo * pi = it->second;
 		

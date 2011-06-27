@@ -20,6 +20,8 @@ class processInfo
 		stdin.insert(0);
 		stdout.insert(1);
 		stderr.insert(2);
+		
+		arg1 = arg2 = arg3 = arg4 = arg5 = arg6 = orig_eax = -1;
 	}
 
 	pid_t pid;
@@ -29,6 +31,9 @@ class processInfo
 	int sigstopToDetach;
 	int sigstopToRestartSyscall;
 	int sigstopNewChild;
+	
+	// Store syscall arguments here. Better be safe than sorry
+	unsigned long arg1, arg2, arg3, arg4, arg5, arg6, orig_eax;
 	
 	// TODO: Implement a more efficient container
 	std::set<int> stdin, stdout, stderr;

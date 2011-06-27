@@ -3,6 +3,7 @@
 
 #if defined(__i386__) || defined(M_IX86) /* x86 arch */
 //#warning x86 architecture detected
+#warning *** x86 architecture is not regularly tested. Use at your own risk ***
 
 #define ARG1 ebx
 #define ARG2 ecx

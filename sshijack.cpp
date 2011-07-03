@@ -253,14 +253,8 @@ int main(int argc, char *argv[])
 	processes[firstPid]->stopAtSyscall();
 	
 	//=========================================================================
-	while(1)
+	while(!processes.empty())
 	{
-		if(processes.empty())
-		{
-			// Got a better idea to break out of TWO while loops at once?
-			goto noMoreProcesses;
-		}
-		
 		// Wait for a syscall to be called
 		int pidReceived = wait(&status);
 		if(pidReceived == -1)
@@ -390,8 +384,7 @@ int main(int argc, char *argv[])
 		// We are interested only in syscalls
 		pi->stopAtSyscall();
 	}
-	// Yes, dear purists, that's a label. Kill me!
-	noMoreProcesses:
+	
 	wantToExit = 1;
 	pthread_join(pollStdinThread, NULL);
 	

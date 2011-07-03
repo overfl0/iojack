@@ -56,7 +56,7 @@ using namespace std;
 		iterator != (iterable).end();                                 \
 		iterator++)
 
-#define DEBUG
+//#define DEBUG
 #ifdef DEBUG
 #define dprintf(x...) printf(x)
 #else

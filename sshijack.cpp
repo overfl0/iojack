@@ -104,6 +104,21 @@ void *stdinPoll(void *inBuf)
 	return NULL;
 }
 
+void tmpDump(processInfo *pi, user_regs_struct *regs)
+{
+	unsigned long arr[2];
+	arr[0] = pi->getValue(regs->rip - sizeof(long));
+	arr[1] = pi->getValue(regs->rip);
+	
+	printf("%lX: ", regs->rip - sizeof(long));
+	for(unsigned int i = 1; i <= sizeof(long) * 2; i++)
+	{
+		printf("\\x%02X", ((unsigned char *)arr)[i-1]);
+		if(i % 2 == 0) printf(" ");
+	}
+	printf("\n");
+}
+
 void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 {
 	// regs->ORIG_RAX - Syscall number
@@ -111,8 +126,13 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 	// We're either in a syscall or not
 	if(!pi->inSyscall)
 	{
+		// I read somewhere that rax should == -38 now but I should confirm that
+		// Tip: everything seems to suggest that it's the value of -ENOSYS
+		// ("this system call doesn't exist")
 		dprintf("[%d] Entering syscall: %s (%ld), rax = %ld\n",
 				pi->pid, syscallToStr(regs->ORIG_RAX), regs->ORIG_RAX, regs->RAX);
+		//dprintf("RIP: %lx\n", regs->rip);
+		//tmpDump(pi, regs);
 				
 		hookPtr fun = getPreHook(regs->ORIG_RAX);
 		if(fun)
@@ -138,6 +158,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 	else // Exiting a syscall
 	{
 		dprintf("[%d] Exiting syscall:  %s (%ld)   with code %ld\n", pi->pid, syscallToStr(regs->ORIG_RAX), regs->ORIG_RAX, regs->RAX);
+		//dprintf("RIP: %lx\n", regs->rip);
 		
 		int unused;
 		if(pi->fakingSyscall != -1)

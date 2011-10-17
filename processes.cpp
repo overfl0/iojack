@@ -4,7 +4,7 @@
 #include <errno.h>
 
 #include "processes.h"
-#include "sshijack.h"
+#include "iojack.h"
 
 // Memory access
 unsigned long processInfo::getValue(unsigned long addr)

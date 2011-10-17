@@ -16,7 +16,7 @@
 #include <time.h>
 //TODO: Clean up this code!
 
-#include "sshijack.h"
+#include "iojack.h"
 #include "terminal.h"
 #include "syscallToStr.h"
 #include "buffer.h"

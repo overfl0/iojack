@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include "syscalls.h"
-#include "sshijack.h"
+#include "iojack.h"
 #include "buffer.h"
 #include <vector>
 #include <sys/syscall.h>

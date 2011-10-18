@@ -23,6 +23,46 @@
 #include "processes.h"
 #include "syscalls.h"
 
+void displayUsage(char *programName)
+{
+	printf("Usage: %s [-h] <pid>\n", programName);
+}
+
+static const char *optString = "h";
+int getArgs(int argc, char **argv)
+{
+	int opt;
+	while((opt = getopt(argc, argv, optString)) != -1)
+	{
+		switch(opt)
+		{
+			/*case 'p':
+				globalArgs.langCode = optarg;
+				break;
+			*/
+			case 'h':
+				displayUsage(argv[0]);
+				exit(0);
+
+			case '?':
+				displayUsage(argv[0]);
+				exit(1);
+		}
+	}
+
+	if(argc <= optind)
+	{
+		displayUsage(argv[0]);
+		exit(1);
+	}
+
+	int firstPid = atoi(argv[optind]);
+	if(firstPid <= 1)
+		pexit("Can't get correct pid from arguments\n");
+
+	return firstPid;
+}
+
 int wantToExit = 0;
 void tryDetachFromProcesses();
 void signal_sigint(int sig)
@@ -227,15 +267,7 @@ int main(int argc, char *argv[])
 	setSignalHandlers();
 	initSyscallHooks();
 
-	//inputBuffer.lockedAdd("To jest test\n");
-	//inputBuffer.lockedAdd("Ab");
-
-	if(argc < 2)
-		pexit("Usage: %s <pid>\n", argv[0]);
-
-	int firstPid = atoi(argv[1]);
-	if(firstPid <= 1)
-		pexit("Can't get correct pid from arguments\n");
+	int firstPid = getArgs(argc, argv);
 
 	printf("Attaching to pid: %d\n", firstPid);
 	if(ptrace(PTRACE_ATTACH, firstPid, NULL, NULL) == -1)

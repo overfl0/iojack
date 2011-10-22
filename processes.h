@@ -3,6 +3,8 @@
 
 #include <sys/types.h>
 #include <set>
+#include <sys/user.h> // user_regs_struct
+#include <string.h> // memset
 
 class processInfo
 {
@@ -21,7 +23,8 @@ class processInfo
 		stdout.insert(1);
 		stderr.insert(2);
 		
-		arg1 = arg2 = arg3 = arg4 = arg5 = arg6 = orig_eax = -1;
+		//orig_regs = 0;
+		memset(&orig_regs, 0, sizeof(user_regs_struct));
 	}
 
 	pid_t pid;
@@ -32,8 +35,7 @@ class processInfo
 	int sigstopToRestartSyscall;
 	int sigstopNewChild;
 	
-	// Store syscall arguments here. Better be safe than sorry
-	unsigned long arg1, arg2, arg3, arg4, arg5, arg6, orig_eax;
+	user_regs_struct orig_regs;
 	
 	// TODO: Implement a more efficient container
 	std::set<int> stdin, stdout, stderr;

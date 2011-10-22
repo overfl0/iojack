@@ -173,7 +173,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 				pi->pid, syscallToStr(regs->ORIG_RAX), regs->ORIG_RAX, regs->RAX);
 		//dprintf("RIP: %lx\n", regs->rip);
 		//tmpDump(pi, regs);
-				
+		pi->orig_regs = *regs; // Backup everything
 		hookPtr fun = getPreHook(regs->ORIG_RAX);
 		if(fun)
 		{
@@ -223,8 +223,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 			pi->fakingSyscall = -1;
 		}
 		
-		// Not tested. Check by yourself if you use this
-		hookPtr postFun = getPostHook(regs->ORIG_RAX);
+		hookPtr postFun = getPostHook(pi->orig_regs.ORIG_RAX);
 		if(postFun)
 			postFun(pi, *regs, *saveRegs, unused);
 		
@@ -376,7 +375,7 @@ int main(int argc, char *argv[])
 			}
 		}
 		
-		// If is't not our signal, forward it to the program and continue the loop
+		// If it's not our signal, forward it to the program and continue the loop
 		if(WIFSTOPPED(status) && WSTOPSIG(status) != SIGTRAP)
 		{
 			dprintf("Pid %d stopped with signal: %d\n", pi->pid, WSTOPSIG(status));

@@ -6,6 +6,7 @@
 #include <sys/syscall.h>
 #include <sys/select.h>
 #include <poll.h>
+#include <fcntl.h>
 
 using namespace std;
 
@@ -224,6 +225,67 @@ void fakePollHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &u
 	saveRegs = 1;
 }
 
+static void closeFileDescriptor(processInfo *pi, unsigned int fd)
+{
+	if(pi->isStdin(fd))
+		pi->stdin.erase(fd);
+
+	if(pi->isStdout(fd))
+		pi->stdout.erase(fd);
+
+	if(pi->isStderr(fd))
+		pi->stderr.erase(fd);
+}
+
+static void duplicateFileDescriptor(processInfo *pi, unsigned int oldfd, unsigned int newfd)
+{
+	if(pi->isStdin(oldfd))
+		pi->stdin.insert(newfd);
+
+	if(pi->isStdout(oldfd))
+		pi->stdout.insert(newfd);
+
+	if(pi->isStderr(oldfd))
+		pi->stderr.insert(newfd);
+}
+
+void postCloseHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
+{
+	//printf("[%d] Got close(%lu) syscall! (returned: %d)\n", pi->pid, pi->orig_regs.ARG1, (int)regs.RAX);
+	if((int)regs.RAX != 0)
+		return;
+
+	closeFileDescriptor(pi, pi->orig_regs.ARG1);
+}
+
+void postDup2Hook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
+{
+	//printf("[%d] Got dup2(%lu, %lu) syscall! (returned: %d)\n", pi->pid, pi->orig_regs.ARG1, pi->orig_regs.ARG2, (int)regs.RAX);
+	if((int)regs.RAX == -1)
+		return;
+
+	if(pi->orig_regs.ARG1 == pi->orig_regs.ARG2)
+		return; // Do nothing as per the man page
+
+	closeFileDescriptor(pi, pi->orig_regs.ARG2);
+
+	//TODO: check the man for FD_CLOEXEC
+	duplicateFileDescriptor(pi, pi->orig_regs.ARG1, pi->orig_regs.ARG2);
+}
+
+void postFcntlHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
+{
+	//printf("[%d] Got fcntl(%lu, %lu, %lu) syscall! (returned: %d)\n", pi->pid, pi->orig_regs.ARG1, pi->orig_regs.ARG2, pi->orig_regs.ARG3, (int)regs.RAX);
+	if((int)regs.RAX == -1)
+		return;
+
+	if(pi->orig_regs.ARG2 == F_DUPFD || pi->orig_regs.ARG2 == F_DUPFD_CLOEXEC)
+	{
+		//printf("[%d] Duplicating: %lu -> %d\n", pi->pid, pi->orig_regs.ARG1, (int)regs.RAX);
+		duplicateFileDescriptor(pi, pi->orig_regs.ARG1, (int)regs.RAX);
+	}
+}
+
 // ======== END OF HOOKS ===========
 
 //void prePollHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &fakeSyscall)
@@ -238,4 +300,7 @@ void initSyscallHooks()
 	addHook(fakedSyscall, SYS_select, fakeSelectHook);
 	addHook(preSyscall, SYS_poll, prePollHook);
 	addHook(fakedSyscall, SYS_poll, fakePollHook);
+	addHook(postSyscall, SYS_close, postCloseHook);
+	addHook(postSyscall, SYS_dup2, postDup2Hook);
+	addHook(postSyscall, SYS_fcntl, postFcntlHook);
 }

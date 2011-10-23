@@ -48,7 +48,10 @@ class processInfo
 	int writeChar(unsigned long addr, unsigned char value);
 	void readMemcpy(void *dest, unsigned long remoteAddr, unsigned int n);
 	void writeMemcpy(unsigned long remoteAddr, void *src, unsigned int n);
-	
+
+	void closeFileDescriptor(unsigned int fd);
+	void duplicateFileDescriptor(unsigned int oldfd, unsigned int newfd);
+
 	void detachProcess();
 	void stopAtSyscall(int signal = 0);
 };

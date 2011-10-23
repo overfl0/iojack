@@ -132,6 +132,31 @@ void processInfo::writeMemcpy(unsigned long remoteAddr, void *src, unsigned int 
 
 // Remaining methods
 
+void processInfo::closeFileDescriptor(unsigned int fd)
+{
+	if(isStdin(fd))
+		stdin.erase(fd);
+
+	if(isStdout(fd))
+		stdout.erase(fd);
+
+	if(isStderr(fd))
+		stderr.erase(fd);
+}
+
+void processInfo::duplicateFileDescriptor(unsigned int oldfd, unsigned int newfd)
+{
+	printf("[%d] Duplicating descriptor: %u -> %u\n", pid, oldfd, newfd);
+	if(isStdin(oldfd))
+		stdin.insert(newfd);
+
+	if(isStdout(oldfd))
+		stdout.insert(newfd);
+
+	if(isStderr(oldfd))
+		stderr.insert(newfd);
+}
+
 static void printPtraceError(int error)
 {
 	switch(error)

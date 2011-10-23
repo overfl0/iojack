@@ -274,6 +274,21 @@ void postDup2Hook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &u
 	pi->duplicateFileDescriptor(pi->orig_regs.ARG1, pi->orig_regs.ARG2);
 }
 
+void postDup3Hook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
+{
+	//printf("[%d] Got dup3(%lu, %lu, %lu) syscall! (returned: %d)\n", pi->pid, pi->orig_regs.ARG1, pi->orig_regs.ARG2, pi->orig_regs.ARG3, (int)regs.RAX);
+	if((int)regs.RAX == -1)
+		return;
+
+	pi->closeFileDescriptor(pi->orig_regs.ARG2);
+	pi->duplicateFileDescriptor(pi->orig_regs.ARG1, pi->orig_regs.ARG2);
+
+	if(pi->orig_regs.ARG3 & FD_CLOEXEC)
+	{
+		// TODO: Do something
+	}
+}
+
 void postFcntlHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
 {
 	//printf("[%d] Got fcntl(%lu, %lu, %lu) syscall! (returned: %d)\n", pi->pid, pi->orig_regs.ARG1, pi->orig_regs.ARG2, pi->orig_regs.ARG3, (int)regs.RAX);
@@ -303,5 +318,6 @@ void initSyscallHooks()
 	setPostHook (SYS_close,  postCloseHook);
 	setPostHook (SYS_dup,    postDupHook);
 	setPostHook (SYS_dup2,   postDup2Hook);
+	setPostHook (SYS_dup3,   postDup3Hook);
 	setPostHook (SYS_fcntl,  postFcntlHook);
 }

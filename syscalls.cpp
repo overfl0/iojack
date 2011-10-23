@@ -14,7 +14,7 @@ vector<hookPtr> preSyscall;
 vector<hookPtr> fakedSyscall;
 vector<hookPtr> postSyscall;
 
-inline void addHook(vector<hookPtr> &v, int syscall, hookPtr ptr)
+inline void setHook(vector<hookPtr> &v, int syscall, hookPtr ptr)
 {
 	if(syscall < 0)
 		return; // Fail silently. Who told you to hook negative syscalls? 
@@ -24,6 +24,21 @@ inline void addHook(vector<hookPtr> &v, int syscall, hookPtr ptr)
 		v.resize(syscall + 1, NULL);
 	}
 	v[syscall] = ptr;
+}
+
+void setPreHook(int syscall, hookPtr ptr)
+{
+	setHook(preSyscall, syscall, ptr);
+}
+
+void setFakedHook(int syscall, hookPtr ptr)
+{
+	setHook(fakedSyscall, syscall, ptr);
+}
+
+void setPostHook(int syscall, hookPtr ptr)
+{
+	setHook(postSyscall, syscall, ptr);
 }
 
 inline hookPtr getHook(vector<hookPtr> &v, int syscall)
@@ -234,6 +249,16 @@ void postCloseHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &
 	pi->closeFileDescriptor(pi->orig_regs.ARG1);
 }
 
+void postDupHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
+{
+	//printf("[%d] Got dup(%lu) syscall! (returned: %d)\n", pi->pid, pi->orig_regs.ARG1, (int)regs.RAX);
+	if((int)regs.RAX == -1)
+		return;
+
+	//TODO: check the man for FD_CLOEXEC
+	pi->duplicateFileDescriptor(pi->orig_regs.ARG2, regs.RAX);
+}
+
 void postDup2Hook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
 {
 	//printf("[%d] Got dup2(%lu, %lu) syscall! (returned: %d)\n", pi->pid, pi->orig_regs.ARG1, pi->orig_regs.ARG2, (int)regs.RAX);
@@ -268,14 +293,15 @@ void postFcntlHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &
 
 void initSyscallHooks()
 {
-	addHook(preSyscall,   SYS_write,  preWriteHook);
-	addHook(preSyscall,   SYS_read,   preReadHook);
-	addHook(fakedSyscall, SYS_read,   fakedReadHook);
-	addHook(preSyscall,   SYS_select, preSelectHook);
-	addHook(fakedSyscall, SYS_select, fakeSelectHook);
-	addHook(preSyscall,   SYS_poll,   prePollHook);
-	addHook(fakedSyscall, SYS_poll,   fakePollHook);
-	addHook(postSyscall,  SYS_close,  postCloseHook);
-	addHook(postSyscall,  SYS_dup2,   postDup2Hook);
-	addHook(postSyscall,  SYS_fcntl,  postFcntlHook);
+	setPreHook  (SYS_write,  preWriteHook);
+	setPreHook  (SYS_read,   preReadHook);
+	setFakedHook(SYS_read,   fakedReadHook);
+	setPreHook  (SYS_select, preSelectHook);
+	setFakedHook(SYS_select, fakeSelectHook);
+	setPreHook  (SYS_poll,   prePollHook);
+	setFakedHook(SYS_poll,   fakePollHook);
+	setPostHook (SYS_close,  postCloseHook);
+	setPostHook (SYS_dup,    postDupHook);
+	setPostHook (SYS_dup2,   postDup2Hook);
+	setPostHook (SYS_fcntl,  postFcntlHook);
 }

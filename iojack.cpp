@@ -392,10 +392,15 @@ int main(int argc, char *argv[])
 			unsigned long newPid;
 			if(ptrace(PTRACE_GETEVENTMSG, pi->pid, 0, &newPid) == -1)
 				perrorexit("PTRACE_GETEVENTMSG");
-			printf("A new process forked/vforked/cloned: %lu\n", newPid);
+			printf("[%d] A new process forked/vforked/cloned: %lu\n", pi->pid, newPid);
 			
 			processInfo *newPi = new processInfo(newPid);
 			newPi->sigstopNewChild = 1;
+			// Copy file descriptors from the parent
+			//FIXME: Race condition with pi->pid calling close() before we get here
+			newPi->stdin = pi->stdin;
+			newPi->stdout = pi->stdout;
+			newPi->stderr = pi->stderr;
 			processes[newPid] = newPi;
 			
 			pi->stopAtSyscall();
@@ -404,6 +409,7 @@ int main(int argc, char *argv[])
 		}
 		if(event == PTRACE_EVENT_EXEC)
 		{
+			// TODO: We probably need to close some fds here (FD_CLOEXEC)
 			dprintf("###################################################################\n");
 			dprintf("Wykryto exec!\n");
 			dprintf("###################################################################\n");

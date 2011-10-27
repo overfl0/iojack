@@ -157,8 +157,9 @@ void fakeSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int 
 		foreach(pi->stdin, it)
 			if(FD_ISSET(*it, &readSet))
 				fd = *it;
-		
-		FD_ZERO(&readSet);
+		//FD_ZERO(&readSet);
+		for(unsigned int i = 0; i < regs.ARG1; i++)
+			FD_CLR(i, &readSet);
 		FD_SET(fd, &readSet);
 		pi->writeMemcpy(regs.ARG2, &readSet, sizeof(fd_set));
 		
@@ -170,7 +171,9 @@ void fakeSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int 
 	{
 		fd_set writeSet;
 		pi->readMemcpy(&writeSet, regs.ARG3, sizeof(fd_set));
-		FD_ZERO(&writeSet);
+		//FD_ZERO(&writeSet);
+		for(unsigned int i = 0; i < regs.ARG1; i++)
+			FD_CLR(i, &writeSet);
 		pi->writeMemcpy(regs.ARG3, &writeSet, sizeof(fd_set));
 	}
 	
@@ -181,7 +184,9 @@ void fakeSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int 
 	{
 		fd_set exceptSet;
 		pi->readMemcpy(&exceptSet, regs.ARG4, sizeof(fd_set));
-		FD_ZERO(&exceptSet);
+		//FD_ZERO(&exceptSet);
+		for(unsigned int i = 0; i < regs.ARG1; i++)
+			FD_CLR(i, &exceptSet);
 		pi->writeMemcpy(regs.ARG4, &exceptSet, sizeof(fd_set));
 	}
 /*	if(regs.ARG4 == (unsigned long)-1)

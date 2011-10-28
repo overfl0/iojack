@@ -261,7 +261,7 @@ void postDupHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &un
 		return;
 
 	//TODO: check the man for FD_CLOEXEC
-	pi->duplicateFileDescriptor(pi->orig_regs.ARG2, regs.RAX);
+	pi->duplicateFileDescriptor(pi->orig_regs.ARG1, regs.RAX);
 }
 
 void postDup2Hook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)

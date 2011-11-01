@@ -25,10 +25,13 @@
 
 void displayUsage(char *programName)
 {
-	printf("Usage: %s [-h] <pid>\n", programName);
+	printf("Usage: %s [-ha] <pid>\n", programName);
+	printf("\tOptions:\n"
+	       "\t\t-a\tUse ANSI cursor sequences right after connecting\n");
 }
 
-static const char *optString = "h";
+settings_t globalSettings;
+static const char *optString = "ha";
 int getArgs(int argc, char **argv)
 {
 	int opt;
@@ -40,6 +43,10 @@ int getArgs(int argc, char **argv)
 				globalArgs.langCode = optarg;
 				break;
 			*/
+			case 'a':
+				globalSettings.sendANSI = 1;
+				break;
+
 			case 'h':
 				displayUsage(argv[0]);
 				exit(0);
@@ -304,6 +311,10 @@ int main(int argc, char *argv[])
 
 	// We are interested only in syscalls
 	processes[firstPid]->stopAtSyscall();
+
+	unsigned char applicationSequences[] = {0x1b, 0x5b, 0x3f, 0x31, 0x68};
+	if(!globalSettings.sendANSI)
+		printf("%s", applicationSequences);
 	
 	//=========================================================================
 	while(!processes.empty())

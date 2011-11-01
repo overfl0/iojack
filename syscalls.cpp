@@ -119,6 +119,7 @@ void preWriteHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &f
 			unsigned long c = pi->getValue(regs.ARG2 + i);
 			dprintf("Wrote letter: ");
 			printf("%c", (int)c);
+			//printf("0x%02x (%c)\n", (unsigned char)c, (unsigned char)c);
 			dprintf("\n");
 		}
 		fflush(stdout);

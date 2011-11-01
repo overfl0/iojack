@@ -63,4 +63,13 @@ using namespace std;
 #define dprintf(x...)
 #endif
 
+class settings_t
+{
+public:
+	char sendANSI;
+
+	settings_t(): sendANSI(0) {};
+};
+extern settings_t globalSettings;
+
 #endif

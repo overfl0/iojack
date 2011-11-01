@@ -367,14 +367,22 @@ void postIoctlHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &
 	*/
 
 	// Struct termios
-	if(pi->orig_regs.ARG2 == TCSETS || pi->orig_regs.ARG2 == TCSETSW || pi->orig_regs.ARG2 == TCSETSF)
+	if(pi->orig_regs.ARG2 == TCSETS || pi->orig_regs.ARG2 == TCSETSW || pi->orig_regs.ARG2 == TCSETSF || pi->orig_regs.ARG2 == TCGETS)
 	{
 		if(pi->isStdin(pi->orig_regs.ARG1))
 		{
 			struct termios term, localTerm;
 			pi->readMemcpy(&term, pi->orig_regs.ARG3, sizeof(termios));
 
+			// Apply input flags to our local terminal in order to better mimic the remote terminal
+			if(ioctl(0, TCGETS, &localTerm) >= 0)
+			{
+				localTerm.c_iflag = term.c_iflag;
+				ioctl(0, TCSETS, &localTerm);
+			}
+
 			// TODO: Maybe just apply the whole term structure to our terminal?
+			/*
 			// TODO: Error handling
 			ioctl(0, TCGETS, &localTerm);
 
@@ -406,6 +414,7 @@ void postIoctlHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &
 			}
 
 			ioctl(0, TCSETS, &localTerm);
+			*/
 		}
 	}
 }

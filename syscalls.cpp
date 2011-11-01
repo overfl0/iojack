@@ -7,6 +7,8 @@
 #include <sys/select.h>
 #include <poll.h>
 #include <fcntl.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 
 using namespace std;
 
@@ -339,6 +341,75 @@ void postOpenHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &u
 	}
 }
 
+void postIoctlHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
+{
+	//printf("[%d] Got ioctl(%lu, %lu, %lu) syscall! (returned: %d)\n", pi->pid, pi->orig_regs.ARG1, pi->orig_regs.ARG2, pi->orig_regs.ARG3, (int)regs.RAX);
+	if((int)regs.RAX < 0)
+		return;
+
+	/*
+	if(pi->orig_regs.ARG2 == TCSETS)
+		printf("[%d] ioctl(%lu, TCSETS)\n", pi->pid, pi->orig_regs.ARG1);
+	if(pi->orig_regs.ARG2 == TCSETSW)
+		printf("[%d] ioctl(%lu, TCSETSW)\n", pi->pid, pi->orig_regs.ARG1);
+	if(pi->orig_regs.ARG2 == TCSETSF)
+		printf("[%d] ioctl(%lu, TCSETSF)\n", pi->pid, pi->orig_regs.ARG1);
+	if(pi->orig_regs.ARG2 == TCSETA)
+		printf("[%d] ioctl(%lu, TCSETA)\n", pi->pid, pi->orig_regs.ARG1);
+	if(pi->orig_regs.ARG2 == TCSETAW)
+		printf("[%d] ioctl(%lu, TCSETAW)\n", pi->pid, pi->orig_regs.ARG1);
+	if(pi->orig_regs.ARG2 == TCSETAF)
+		printf("[%d] ioctl(%lu, TCSETAF)\n", pi->pid, pi->orig_regs.ARG1);
+
+	if(pi->orig_regs.ARG2 == TCGETS)
+		printf("[%d] ioctl(%lu, TCGETS)\n", pi->pid, pi->orig_regs.ARG1);
+
+	*/
+
+	// Struct termios
+	if(pi->orig_regs.ARG2 == TCSETS || pi->orig_regs.ARG2 == TCSETSW || pi->orig_regs.ARG2 == TCSETSF)
+	{
+		if(pi->isStdin(pi->orig_regs.ARG1))
+		{
+			struct termios term, localTerm;
+			pi->readMemcpy(&term, pi->orig_regs.ARG3, sizeof(termios));
+
+			// TODO: Maybe just apply the whole term structure to our terminal?
+			// TODO: Error handling
+			ioctl(0, TCGETS, &localTerm);
+
+			if(term.c_iflag & INLCR)
+			{
+				printf("[%d] INLCR\n", pi->pid);
+				localTerm.c_iflag |= INLCR;
+			} else {
+				printf("[%d] ~INLCR\n", pi->pid);
+				localTerm.c_iflag &= ~INLCR;
+			}
+
+			if(term.c_iflag & ICRNL)
+			{
+				printf("[%d] ICRNL\n", pi->pid);
+				localTerm.c_iflag |= ICRNL;
+			} else {
+				printf("[%d] ~ICRNL\n", pi->pid);
+				localTerm.c_iflag &= ~ICRNL;
+			}
+
+			if(term.c_iflag & IGNCR)
+			{
+				printf("[%d] IGNCR\n", pi->pid);
+				localTerm.c_iflag |= IGNCR;
+			} else {
+				printf("[%d] ~IGNCR\n", pi->pid);
+				localTerm.c_iflag &= ~IGNCR;
+			}
+
+			ioctl(0, TCSETS, &localTerm);
+		}
+	}
+}
+
 // ======== END OF HOOKS ===========
 
 //void prePollHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &fakeSyscall)
@@ -359,4 +430,5 @@ void initSyscallHooks()
 	setPostHook (SYS_dup3,   postDup3Hook);
 	setPostHook (SYS_fcntl,  postFcntlHook);
 	setPostHook (SYS_open,   postOpenHook);
+	setPostHook (SYS_ioctl,  postIoctlHook);
 }

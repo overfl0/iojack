@@ -281,8 +281,6 @@ int main(int argc, char *argv[])
 			perrorexit("PTRACE_ATTACH");
 	}
 
-	processes[firstPid] = new processInfo(firstPid);
-
 	int status;
 	// Should be checked
 	firstPid = wait(&status);
@@ -300,6 +298,9 @@ int main(int argc, char *argv[])
 	int retval = pthread_create(&pollStdinThread, NULL, stdinPoll, (void*)&inputBuffer);
 	if(retval)
 		perrorexit("Reading input thread");
+
+	processes[firstPid] = new processInfo(firstPid);
+	processes[firstPid]->guessFds();
 
 	// We are interested only in syscalls
 	processes[firstPid]->stopAtSyscall();

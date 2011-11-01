@@ -19,9 +19,9 @@ class processInfo
 		sigstopToRestartSyscall = 0;
 		sigstopNewChild = 0;
 		
-		stdin.insert(0);
+		/*stdin.insert(0);
 		stdout.insert(1);
-		stderr.insert(2);
+		stderr.insert(2);*/
 		
 		//orig_regs = 0;
 		memset(&orig_regs, 0, sizeof(user_regs_struct));
@@ -48,12 +48,14 @@ class processInfo
 	int writeChar(unsigned long addr, unsigned char value);
 	void readMemcpy(void *dest, unsigned long remoteAddr, unsigned int n);
 	void writeMemcpy(unsigned long remoteAddr, void *src, unsigned int n);
+	char *readStrncpy(char *dest, unsigned long remoteAddr, unsigned int n);
 
 	void closeFileDescriptor(unsigned int fd);
 	void duplicateFileDescriptor(unsigned int oldfd, unsigned int newfd);
 
 	void detachProcess();
 	void stopAtSyscall(int signal = 0);
+	void guessFds();
 };
 
 #endif

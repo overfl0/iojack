@@ -3,6 +3,9 @@
 #include <sys/ptrace.h>
 #include <errno.h>
 
+#include <sys/types.h> // opendir
+#include <dirent.h>
+
 #include "processes.h"
 #include "iojack.h"
 
@@ -130,6 +133,37 @@ void processInfo::writeMemcpy(unsigned long remoteAddr, void *src, unsigned int 
 	
 }
 
+char *processInfo::readStrncpy(char *dest, unsigned long remoteAddr, unsigned int n)
+{
+	unsigned int i = 0;
+	while(i < n)
+	{
+		//printf("Reading at %lx...\n", remoteAddr + i);
+		unsigned long retval = ptrace(PTRACE_PEEKDATA, pid, remoteAddr + i, 0);
+		if(retval == (unsigned long)-1 && errno != 0)
+		{
+			perror("readMemcpy - ptrace read");
+			goto end; //FIXME: throw an exception or sumtin'
+		}
+
+		for(unsigned int j = 0; j < sizeof(unsigned long); j++, i++)
+		{
+			if(i >= n)
+				goto end;
+
+			*dest = ((char *)&retval)[j];
+			if(*dest++ == '\0')
+				goto end;
+		}
+	}
+
+	end:
+	for(;i < n; i++)
+		*dest++ = '\0';
+
+	return dest;
+}
+
 // Remaining methods
 
 void processInfo::closeFileDescriptor(unsigned int fd)
@@ -146,7 +180,7 @@ void processInfo::closeFileDescriptor(unsigned int fd)
 
 void processInfo::duplicateFileDescriptor(unsigned int oldfd, unsigned int newfd)
 {
-	printf("[%d] Duplicating descriptor: %u -> %u\n", pid, oldfd, newfd);
+	//printf("[%d] Duplicating descriptor: %u -> %u\n", pid, oldfd, newfd);
 	if(isStdin(oldfd))
 		stdin.insert(newfd);
 
@@ -194,4 +228,63 @@ void processInfo::stopAtSyscall(int signal)
 		printPtraceError(errno);
 		perrorexit("PTRACE_SYSCALL");
 	}
+}
+
+void processInfo::guessFds()
+{
+	// TODO: perform error checking!
+	char path[100];
+	snprintf(path, 100, "/proc/%d/fd/", pid);
+
+	DIR *dp;
+	struct dirent *ep;
+	if((dp = opendir(path)) != NULL)
+	{
+		while((ep = readdir(dp)))
+		{
+			//printf("[%d] %s (inode: %ld)\n", pid, ep->d_name, (long)ep->d_ino);
+			if(ep->d_type == DT_LNK)
+			{
+				char fdpath[1025];
+				snprintf(fdpath, 1025, "%s/%s", path, ep->d_name);
+
+				//struct stat retstat, retlstat;
+				//stat(fdpath, &retstat);
+				//lstat(fdpath, &retlstat);
+				//printf("st_dev:\t%d\t%d\n", retstat.st_dev, retlstat.st_dev);
+				//printf("st_ino:\t%d\t%d\n", (int)retstat.st_ino, (int)retlstat.st_ino);
+				//printf("st_rdev:\t%d\t%d\n", (int)retstat.st_rdev, (int)retlstat.st_rdev);
+
+				char linkName[101];
+				int retval = readlink(fdpath, linkName, 100);
+				linkName[100] = '\0';
+				if(retval >= 0)
+				{
+					linkName[retval] = '\0';
+					//printf("[%d] -> %s\n", pid, linkName);
+					if(!strncmp(linkName, "/dev/pts/", strlen("/dev/pts/"))
+					|| !strncmp(linkName, "/dev/tty",  strlen("/dev/tty")))
+					{
+						//printf("[%d] This fd points to stdin/out/err\n", pid);
+						int fd = atoi(ep->d_name);
+						printf("[%d] Adding fd %d to watched streams\n", pid, fd);
+
+						// Add this fd to all the streams. This should do the trick
+						// until we find a more reliable way find which fd is which stream
+						stdin.insert(fd);
+						stdout.insert(fd);
+						stderr.insert(fd);
+					}
+
+				} else {
+					printf("[%d] Readlink on %s failed!\n", pid, fdpath);
+				}
+
+			}
+		}
+
+		closedir(dp);
+	}
+	else
+		perror ("Couldn't open the /proc/... directory");
 }

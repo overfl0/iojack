@@ -306,6 +306,39 @@ void postFcntlHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &
 	}
 }
 
+//int open(const char *pathname, int flags, mode_t mode);
+//int creat(const char *pathname, mode_t mode);
+void postOpenHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
+{
+	//printf("[%d] Got open(%lx, %lu, %lu) syscall! (returned: %d)\n", pi->pid, pi->orig_regs.ARG1, pi->orig_regs.ARG2, pi->orig_regs.ARG3, (int)regs.RAX);
+	if((int)regs.RAX < 0)
+		return;
+
+	#define MAX_FILE_LEN 100
+	char fileName[MAX_FILE_LEN + 1];
+	pi->readStrncpy(fileName, pi->orig_regs.ARG1, MAX_FILE_LEN);
+	fileName[MAX_FILE_LEN] = '\0';
+	#undef MAX_FILE_LEN
+
+	//printf("[%d] open(%s) = %d\n", pi->pid, fileName, (int)regs.RAX);
+
+	// Check if opening a terminal
+	if(!strncmp(fileName, "/dev/pts/", strlen("/dev/pts/"))
+	|| !strncmp(fileName, "/dev/tty",  strlen("/dev/tty")))
+	{
+		if((pi->orig_regs.ARG2 & 3) == O_RDONLY || (pi->orig_regs.ARG2 & 3) == O_RDWR)
+		{
+			pi->stdin.insert(regs.RAX);
+		}
+
+		if((pi->orig_regs.ARG2 & 3) == O_WRONLY || (pi->orig_regs.ARG2 & 3) == O_RDWR)
+		{
+			pi->stdout.insert(regs.RAX);
+			pi->stderr.insert(regs.RAX);
+		}
+	}
+}
+
 // ======== END OF HOOKS ===========
 
 //void prePollHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &fakeSyscall)
@@ -325,4 +358,5 @@ void initSyscallHooks()
 	setPostHook (SYS_dup2,   postDup2Hook);
 	setPostHook (SYS_dup3,   postDup3Hook);
 	setPostHook (SYS_fcntl,  postFcntlHook);
+	setPostHook (SYS_open,   postOpenHook);
 }

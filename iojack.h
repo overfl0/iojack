@@ -37,24 +37,24 @@
 #define pexit(x...)\
 do \
 {\
-	printf(x);\
-	exit(1);\
+    printf(x);\
+    exit(1);\
 } while(0)
 
 #define perrorexit(x)\
 do \
 {\
-	perror(x);\
-	exit(1);\
+    perror(x);\
+    exit(1);\
 } while(0)
 
 
 using namespace std;
 
 #define foreach(iterable, iterator)                                   \
-	for(__typeof__((iterable).begin()) iterator = (iterable).begin(); \
-		iterator != (iterable).end();                                 \
-		iterator++)
+    for(__typeof__((iterable).begin()) iterator = (iterable).begin(); \
+        iterator != (iterable).end();                                 \
+        iterator++)
 
 //#define DEBUG
 #ifdef DEBUG
@@ -66,9 +66,9 @@ using namespace std;
 class settings_t
 {
 public:
-	char sendANSI;
+    char sendANSI;
 
-	settings_t(): sendANSI(0) {};
+    settings_t(): sendANSI(0) {};
 };
 extern settings_t globalSettings;
 

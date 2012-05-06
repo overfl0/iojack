@@ -9,36 +9,36 @@ termios termSettings;
 
 void initStdin(termios &settings)
 {
-	tcgetattr(0, &settings);
-	termios newSettings = settings;
+    tcgetattr(0, &settings);
+    termios newSettings = settings;
 
-	newSettings.c_lflag &= (~ICANON);
-	newSettings.c_lflag &= (~ECHO);
-	//newSettings.c_lflag &= (~ISIG);
+    newSettings.c_lflag &= (~ICANON);
+    newSettings.c_lflag &= (~ECHO);
+    //newSettings.c_lflag &= (~ISIG);
 
-	newSettings.c_cc[VTIME] = 0;//1; // timeout (tenths of a second)
-	newSettings.c_cc[VMIN] = 0;  // minimum number of characters
+    newSettings.c_cc[VTIME] = 0;//1; // timeout (tenths of a second)
+    newSettings.c_cc[VMIN] = 0;  // minimum number of characters
 
-	// apply the new settings
-	tcsetattr(0, TCSANOW, &newSettings);
+    // apply the new settings
+    tcsetattr(0, TCSANOW, &newSettings);
 }
 
 void deinitStdin(const termios &settings)
 {
-	tcsetattr(0, TCSANOW, &settings);
+    tcsetattr(0, TCSANOW, &settings);
 }
 
 void initTerminal()
 {
-	initStdin(termSettings);
+    initStdin(termSettings);
 }
 
 void uninitTerminal()
 {
-	deinitStdin(termSettings);
+    deinitStdin(termSettings);
 }
 
 int getTerminalChar()
 {
-	return getchar();
+    return getchar();
 }

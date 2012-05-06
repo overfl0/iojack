@@ -122,7 +122,33 @@ void preWriteHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &f
             //printf("0x%02x (%c)\n", (unsigned char)c, (unsigned char)c);
             dprintf("\n");
         }
+
+        if(globalSettings.hideOutput)
+        {
+            regs.ARG3 = 0;
+            saveRegs = 1;
+        }
         fflush(stdout);
+    }
+}
+
+//TODO: Implement this with a fakeWriteHook
+void postWriteHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &fakeSyscall)
+{
+    // ssize_t write(int fd, const void *buf, size_t count);
+    //ssize_t retval = write(regs.ARG1, regs.ARG2, regs.ARG3);
+    //write(stdout, regs.ARG2, regs.ARG3);
+    dprintf("Got a post write syscall!\n");
+    dprintf("fd = %d\n", (int)pi->orig_regs.ARG1);
+    if(pi->isStdout(pi->orig_regs.ARG1) || pi->isStderr(pi->orig_regs.ARG1))
+    {
+        if(globalSettings.hideOutput && pi->orig_regs.ARG3 > 0)
+        {
+            // Todo check for errors
+            // Pretend we wrote all the required bytes
+                        regs.RAX = pi->orig_regs.ARG3;
+            saveRegs = 1;
+        }
     }
 
     //return retval;
@@ -441,4 +467,6 @@ void initSyscallHooks()
     setPostHook (SYS_fcntl,  postFcntlHook);
     setPostHook (SYS_open,   postOpenHook);
     setPostHook (SYS_ioctl,  postIoctlHook);
+    if(globalSettings.hideOutput)
+        setPostHook(SYS_write, postWriteHook);
 }

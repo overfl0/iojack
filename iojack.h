@@ -67,8 +67,9 @@ class settings_t
 {
 public:
     char sendANSI;
+    char hideOutput;
 
-    settings_t(): sendANSI(0) {};
+    settings_t(): sendANSI(0), hideOutput(0) {};
 };
 extern settings_t globalSettings;
 

@@ -31,7 +31,8 @@ void displayUsage(char *programName)
 }
 
 settings_t globalSettings;
-static const char *optString = "ha";
+static const char *optString = "had";
+
 int getArgs(int argc, char **argv)
 {
     int opt;
@@ -45,6 +46,10 @@ int getArgs(int argc, char **argv)
             */
             case 'a':
                 globalSettings.sendANSI = 1;
+                break;
+
+            case 'd':
+                globalSettings.hideOutput = 1;
                 break;
 
             case 'h':
@@ -270,10 +275,10 @@ void tryDetachFromProcesses()
 int main(int argc, char *argv[])
 {
     pthread_t pollStdinThread;
+    int firstPid = getArgs(argc, argv);
+
     setSignalHandlers();
     initSyscallHooks();
-
-    int firstPid = getArgs(argc, argv);
 
     printf("Attaching to pid: %d\n", firstPid);
     if(ptrace(PTRACE_ATTACH, firstPid, NULL, NULL) == -1)

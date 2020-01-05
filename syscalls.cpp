@@ -143,7 +143,6 @@ void preSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &
                 return;
             }
     }
-
 }
 
 void fakeSelectHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &unused)
@@ -427,18 +426,20 @@ void postIoctlHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &
 
 void initSyscallHooks()
 {
-    setPreHook  (SYS_write,  preWriteHook);
-    setPreHook  (SYS_read,   preReadHook);
-    setFakedHook(SYS_read,   fakedReadHook);
-    setPreHook  (SYS_select, preSelectHook);
-    setFakedHook(SYS_select, fakeSelectHook);
-    setPreHook  (SYS_poll,   prePollHook);
-    setFakedHook(SYS_poll,   fakePollHook);
-    setPostHook (SYS_close,  postCloseHook);
-    setPostHook (SYS_dup,    postDupHook);
-    setPostHook (SYS_dup2,   postDup2Hook);
-    setPostHook (SYS_dup3,   postDup3Hook);
-    setPostHook (SYS_fcntl,  postFcntlHook);
-    setPostHook (SYS_open,   postOpenHook);
-    setPostHook (SYS_ioctl,  postIoctlHook);
+    setPreHook  (SYS_write,    preWriteHook);
+    setPreHook  (SYS_read,     preReadHook);
+    setFakedHook(SYS_read,     fakedReadHook);
+    setPreHook(SYS_select,     preSelectHook);
+    setFakedHook(SYS_select,   fakeSelectHook);
+    setPreHook(SYS_pselect6,   preSelectHook);  // like select() but atomically sets and
+    setFakedHook(SYS_pselect6, fakeSelectHook); // unsets sigprocmask() before and after select()
+    setPreHook  (SYS_poll,     prePollHook);
+    setFakedHook(SYS_poll,     fakePollHook);
+    setPostHook (SYS_close,    postCloseHook);
+    setPostHook (SYS_dup,      postDupHook);
+    setPostHook (SYS_dup2,     postDup2Hook);
+    setPostHook (SYS_dup3,     postDup3Hook);
+    setPostHook (SYS_fcntl,    postFcntlHook);
+    setPostHook (SYS_open,     postOpenHook);
+    setPostHook (SYS_ioctl,    postIoctlHook);
 }

@@ -1,14 +1,18 @@
 #ifndef PROCESSES_H
 #define PROCESSES_H
 
+#include "iojack.h"
+
 #include <sys/types.h>
 #include <set>
 #include <sys/user.h> // user_regs_struct
 #include <string.h> // memset
+#include <asm/ptrace.h> //user_regs_struct
 
 class processInfo
 {
     public: // We have nothing to hide, don't we? :)
+    struct user_regs_struct orig_regs;
     processInfo(pid_t newPid)
     {
         pid = newPid;
@@ -35,7 +39,7 @@ class processInfo
     int sigstopToRestartSyscall;
     int sigstopNewChild;
 
-    user_regs_struct orig_regs;
+
 
     // TODO: Implement a more efficient container
     std::set<int> stdin, stdout, stderr;

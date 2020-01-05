@@ -11,6 +11,7 @@
 #include <map>
 #include <signal.h>
 #include <string.h>
+#include <unistd.h> // getopt
 
 #include <pthread.h>
 #include <time.h>
@@ -154,10 +155,10 @@ void *stdinPoll(void *inBuf)
 void tmpDump(processInfo *pi, user_regs_struct *regs)
 {
     unsigned long arr[2];
-    arr[0] = pi->getValue(regs->rip - sizeof(long));
-    arr[1] = pi->getValue(regs->rip);
+    arr[0] = pi->getValue(regs->RIP - sizeof(long));
+    arr[1] = pi->getValue(regs->RIP);
 
-    printf("%lX: ", regs->rip - sizeof(long));
+    printf("%lX: ", regs->RIP - sizeof(long));
     for(unsigned int i = 1; i <= sizeof(long) * 2; i++)
     {
         printf("\\x%02X", ((unsigned char *)arr)[i-1]);
@@ -171,17 +172,39 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
     // regs->ORIG_RAX - Syscall number
     //printf("__RAX: %ld (orig: %ld)\n", regs->RAX, regs->ORIG_RAX);
     // We're either in a syscall or not
+/*
+    #define p(x) printf(#x": %ld\n", regs->x);
+    p(ARM_ORIG_r0);
+    p(ARM_r0);
+    p(ARM_r1);
+    p(ARM_r2);
+    p(ARM_r3);
+    p(ARM_r4);
+    p(ARM_r5);
+    p(ARM_r6);
+    p(ARM_r7);
+    p(ARM_r8);
+    p(ARM_r9);
+    p(ARM_r10);
+    p(ARM_fp);
+    p(ARM_ip);
+    p(ARM_sp);
+    p(ARM_lr);
+    p(ARM_pc);
+    p(ARM_cpsr);
+    printf("****************************\n");
+*/
     if(!pi->inSyscall)
     {
         // I read somewhere that rax should == -38 now but I should confirm that
         // Tip: everything seems to suggest that it's the value of -ENOSYS
         // ("this system call doesn't exist")
         dprintf("[%d] Entering syscall: %s (%ld), rax = %ld\n",
-                pi->pid, syscallToStr(regs->ORIG_RAX), regs->ORIG_RAX, regs->RAX);
+                pi->pid, syscallToStr(regs->CALL_NBR), regs->CALL_NBR, regs->RAX);
         //dprintf("RIP: %lx\n", regs->rip);
         //tmpDump(pi, regs);
         pi->orig_regs = *regs; // Backup everything
-        hookPtr fun = getPreHook(regs->ORIG_RAX);
+        hookPtr fun = getPreHook(regs->CALL_NBR);
         if(fun)
         {
             // Run a hooked function
@@ -190,7 +213,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
 
             if(fakeSyscall)
             {
-                pi->fakingSyscall = regs->ORIG_RAX;
+                pi->fakingSyscall = regs->CALL_NBR;
 
                 // This syscall can't exist :)
                 regs->ORIG_RAX = (unsigned int)-1;
@@ -204,14 +227,14 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
     }
     else // Exiting a syscall
     {
-        dprintf("[%d] Exiting syscall:  %s (%ld)   with code %ld\n", pi->pid, syscallToStr(regs->ORIG_RAX), regs->ORIG_RAX, regs->RAX);
+        dprintf("[%d] Exiting syscall:  %s (%ld)   with code %ld\n", pi->pid, syscallToStr(regs->CALL_NBR), regs->CALL_NBR, regs->RAX);
         //dprintf("RIP: %lx\n", regs->rip);
 
         int unused;
         if(pi->fakingSyscall != -1)
         {
-            if(regs->ORIG_RAX != (unsigned int)-1)
-                printf("[%d] OMG! :O, regs->ORIG_RAX == %ld\n", pi->pid, regs->ORIG_RAX);
+            if(regs->CALL_NBR != (unsigned int)-1)
+                printf("[%d] OMG! :O, regs->CALL_NBR == %ld\n", pi->pid, regs->CALL_NBR);
 
             // Second ptrace trap. We just finished running our
             // nonexisting syscall. Now is the moment to inject the
@@ -230,7 +253,7 @@ void processSyscall(processInfo *pi, user_regs_struct *regs, int *saveRegs)
             pi->fakingSyscall = -1;
         }
 
-        hookPtr postFun = getPostHook(pi->orig_regs.ORIG_RAX);
+        hookPtr postFun = getPostHook(pi->orig_regs.CALL_NBR);
         if(postFun)
             postFun(pi, *regs, *saveRegs, unused);
 

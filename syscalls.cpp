@@ -427,18 +427,18 @@ void postIoctlHook(processInfo *pi, user_regs_struct &regs, int &saveRegs, int &
 
 void initSyscallHooks()
 {
-    setPreHook  (SYS_write,  preWriteHook);
-    setPreHook  (SYS_read,   preReadHook);
-    setFakedHook(SYS_read,   fakedReadHook);
-    setPreHook  (SYS_select, preSelectHook);
-    setFakedHook(SYS_select, fakeSelectHook);
-    setPreHook  (SYS_poll,   prePollHook);
-    setFakedHook(SYS_poll,   fakePollHook);
-    setPostHook (SYS_close,  postCloseHook);
-    setPostHook (SYS_dup,    postDupHook);
-    setPostHook (SYS_dup2,   postDup2Hook);
-    setPostHook (SYS_dup3,   postDup3Hook);
-    setPostHook (SYS_fcntl,  postFcntlHook);
-    setPostHook (SYS_open,   postOpenHook);
-    setPostHook (SYS_ioctl,  postIoctlHook);
+    setPreHook  (__NR_write,  preWriteHook);
+    setPreHook  (__NR_read,   preReadHook);
+    setFakedHook(__NR_read,   fakedReadHook);
+//    setPreHook  (__NR_select, preSelectHook);
+//    setFakedHook(__NR_select, fakeSelectHook);
+    setPreHook  (__NR_poll,   prePollHook);
+    setFakedHook(__NR_poll,   fakePollHook);
+    setPostHook (__NR_close,  postCloseHook);
+    setPostHook (__NR_dup,    postDupHook);
+    setPostHook (__NR_dup2,   postDup2Hook);
+    setPostHook (__NR_dup3,   postDup3Hook);
+    setPostHook (__NR_fcntl,  postFcntlHook);
+    setPostHook (__NR_open,   postOpenHook);
+    setPostHook (__NR_ioctl,  postIoctlHook);
 }

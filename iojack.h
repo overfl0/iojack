@@ -28,7 +28,26 @@
 //Note to self: Kernel-kernel calls use rdi, rsi, rdx, r10, r8, r9
 
 #define RAX rax
+#define RIP rip
 #define ORIG_RAX orig_rax
+
+#elif defined(__arm__) && defined(__ARMEL__)
+//#warning armel architecture detected
+
+#define ARG1 ARM_r0
+#define ARG2 ARM_r1
+#define ARG3 ARM_r2
+#define ARG4 ARM_r3
+#define ARG5 ARM_r4
+#define ARG6 ARM_r5
+
+#define CALL_NBR ARM_r7
+
+#define RAX ARM_r0
+#define RIP ARM_ip
+#define ORIG_RAX ARM_ORIG_r0
+
+#define user_regs_struct pt_regs
 
 #else
 #error "Can't recognize processor architecture!"

@@ -6,6 +6,8 @@
 #include <sys/types.h> // opendir
 #include <dirent.h>
 
+#include <unistd.h> // readlink
+
 #include "processes.h"
 #include "iojack.h"
 

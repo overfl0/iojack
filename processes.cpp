@@ -2,6 +2,7 @@
 #include <stdlib.h>      // exit()
 #include <sys/ptrace.h>
 #include <errno.h>
+#include <unistd.h>
 
 #include <sys/types.h> // opendir
 #include <dirent.h>

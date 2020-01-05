@@ -3,3 +3,8 @@
 iojack
 readline
 *.kate-swp
+obj
+*.sln
+*.vcxproj
+*.vcxproj.user
+*.out

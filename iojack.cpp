@@ -11,6 +11,7 @@
 #include <map>
 #include <signal.h>
 #include <string.h>
+#include <getopt.h>
 
 #include <pthread.h>
 #include <time.h>
